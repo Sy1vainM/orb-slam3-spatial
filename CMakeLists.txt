@@ -31,16 +31,22 @@ endif()
 LIST(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake_modules)
 
 find_package(OpenCV 4.4)
-   if(NOT OpenCV_FOUND)
-      message(FATAL_ERROR "OpenCV > 4.4 not found.")
-   endif()
+if(NOT OpenCV_FOUND)
+    message(FATAL_ERROR "OpenCV > 4.4 not found.")
+endif()
 
 MESSAGE("OPENCV VERSION:")
 MESSAGE(${OpenCV_VERSION})
 
 find_package(Eigen3 3.1.0 REQUIRED)
-find_package(Pangolin REQUIRED)
 find_package(realsense2)
+
+set(Pangolin_DIR "${CMAKE_SOURCE_DIR}/Thirdparty/Pangolin/build")
+find_package(Pangolin REQUIRED)
+
+find_package(OpenSSL REQUIRED)
+
+find_package(Boost REQUIRED COMPONENTS serialization)
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
@@ -49,6 +55,8 @@ ${PROJECT_SOURCE_DIR}/include/CameraModels
 ${PROJECT_SOURCE_DIR}/Thirdparty/Sophus
 ${EIGEN3_INCLUDE_DIR}
 ${Pangolin_INCLUDE_DIRS}
+${OPENSSL_INCLUDE_DIR}
+${Boost_INCLUDE_DIRS}
 )
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
@@ -113,17 +121,28 @@ include/SerializationUtils.h
 include/Config.h
 include/Settings.h)
 
-add_subdirectory(Thirdparty/g2o)
+# add_subdirectory(Thirdparty/g2o)
 
 target_link_libraries(${PROJECT_NAME}
-${OpenCV_LIBS}
-${EIGEN3_LIBS}
-${Pangolin_LIBRARIES}
-${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
-${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
--lboost_serialization
--lcrypto
+    ${OpenCV_LIBS}
+    ${EIGEN3_LIBS}
+    ${Pangolin_LIBRARIES}
+    ${Boost_LIBRARIES}
 )
+
+if (APPLE)
+    target_link_libraries(${PROJECT_NAME}
+        ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.dylib
+        ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.dylib
+        OpenSSL::Crypto
+    )
+else()
+    target_link_libraries(${PROJECT_NAME}
+        ${PROJECT_SOURCE_DIR}/Thirdparty/DBoW2/lib/libDBoW2.so
+        ${PROJECT_SOURCE_DIR}/Thirdparty/g2o/lib/libg2o.so
+        -lcrypto
+    )
+endif()
 
 # If RealSense SDK is found the library is added and its examples compiled
 if(realsense2_FOUND)

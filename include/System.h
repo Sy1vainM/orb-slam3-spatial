@@ -192,6 +192,8 @@ public:
     void InsertTrackTime(double& time);
 #endif
 
+    void RunViewer();
+
 private:
 
     void SaveAtlas(int type);
