@@ -68,7 +68,6 @@ int main(int argc, char **argv)
         cv::Mat im;
         for(int ni=0; ni<nImages; ni++)
         {
-            cout << "load image " << string(argv[3])+"/"+vstrImageFilenames[ni] << endl;
             // Read image from file
             im = cv::imread(string(argv[3])+"/"+vstrImageFilenames[ni],cv::IMREAD_UNCHANGED); //,cv::IMREAD_UNCHANGED);
 
@@ -111,8 +110,7 @@ int main(int argc, char **argv)
     #endif
 
             // Pass the image to the SLAM system
-            const auto Tcw = SLAM.TrackMonocular(im,tframe);
-            cout << Tcw.matrix() << endl;
+            SLAM.TrackMonocular(im,tframe);
 
     #ifdef COMPILEDWITHC11
             std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();

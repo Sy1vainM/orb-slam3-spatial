@@ -346,7 +346,6 @@ void Viewer::Run()
 
         d_img1.Activate();
         glColor4f(1.0f,1.0f,1.0f,1.0f);
-        cout << "render tex" << endl;
         imageTexture->RenderToViewport(true);
 
         d_cam.Activate(s_cam);
