@@ -21,6 +21,7 @@
 #include <pangolin/pangolin.h>
 
 #include <mutex>
+#include <memory>
 
 namespace ORB_SLAM3
 {
@@ -200,11 +201,20 @@ void Viewer::Run()
             .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0, -1024.0f/768.0f)
             .SetHandler(new pangolin::Handler3D(s_cam));
 
+    pangolin::View& d_img1 = pangolin::Display("img1")
+        .SetAspect(640.0f/480.0f);
+
+    pangolin::Display("multi")
+        .SetBounds(0.0, 1.0, 0.0, 1.0)
+        .SetLayout(pangolin::LayoutEqual)
+        .AddDisplay(d_cam)
+        .AddDisplay(d_img1);
+
     pangolin::OpenGlMatrix Twc, Twr;
     Twc.SetIdentity();
     pangolin::OpenGlMatrix Ow; // Oriented with g in the z axis
     Ow.SetIdentity();
-    cv::namedWindow("ORB-SLAM3: Current Frame");
+    // cv::namedWindow("ORB-SLAM3: Current Frame");
 
     bool bFollow = true;
     bool bLocalizationMode = false;
@@ -218,11 +228,11 @@ void Viewer::Run()
 
     float trackedImageScale = mpTracker->GetImageScale();
 
-    cout << "Starting the Viewer" << endl;
-    while(1)
-    {
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    std::unique_ptr<pangolin::GlTexture> imageTexture(nullptr);
 
+    cout << "Starting the Viewer" << endl;
+    while(!pangolin::ShouldQuit())
+    {
         mpMapDrawer->GetCurrentOpenGLCameraMatrix(Twc,Ow);
 
         if(mbStopTrack)
@@ -306,17 +316,6 @@ void Viewer::Run()
             menuStep = false;
         }
 
-
-        d_cam.Activate(s_cam);
-        glClearColor(1.0f,1.0f,1.0f,1.0f);
-        mpMapDrawer->DrawCurrentCamera(Twc);
-        if(menuShowKeyFrames || menuShowGraph || menuShowInertialGraph || menuShowOptLba)
-            mpMapDrawer->DrawKeyFrames(menuShowKeyFrames,menuShowGraph, menuShowInertialGraph, menuShowOptLba);
-        if(menuShowPoints)
-            mpMapDrawer->DrawMapPoints();
-
-        pangolin::FinishFrame();
-
         cv::Mat toShow;
         cv::Mat im = mpFrameDrawer->DrawFrame(trackedImageScale);
 
@@ -335,8 +334,30 @@ void Viewer::Run()
             cv::resize(toShow, toShow, cv::Size(width, height));
         }
 
-        cv::imshow("ORB-SLAM3: Current Frame",toShow);
-        cv::waitKey(mT);
+        if (not imageTexture) {
+            imageTexture = std::unique_ptr<pangolin::GlTexture>(
+                new pangolin::GlTexture(toShow.cols, toShow.rows, GL_RGB, false, 0, GL_RGB,GL_UNSIGNED_BYTE)
+            );
+        }
+
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        imageTexture->Upload(toShow.data, GL_RGB, GL_UNSIGNED_BYTE);
+
+        d_img1.Activate();
+        glColor4f(1.0f,1.0f,1.0f,1.0f);
+        cout << "render tex" << endl;
+        imageTexture->RenderToViewport(true);
+
+        d_cam.Activate(s_cam);
+        glClearColor(1.0f,1.0f,1.0f,1.0f);
+        mpMapDrawer->DrawCurrentCamera(Twc);
+        if(menuShowKeyFrames || menuShowGraph || menuShowInertialGraph || menuShowOptLba)
+            mpMapDrawer->DrawKeyFrames(menuShowKeyFrames,menuShowGraph, menuShowInertialGraph, menuShowOptLba);
+        if(menuShowPoints)
+            mpMapDrawer->DrawMapPoints();
+
+        pangolin::FinishFrame();
 
         if(menuReset)
         {

@@ -207,7 +207,6 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
             {
                 glLineWidth(mKeyFrameLineWidth*5);
                 glColor3f(1.0f,0.0f,0.0f);
-                glBegin(GL_LINES);
             }
             else
             {
@@ -231,9 +230,10 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
                 {
                     glColor3f(0.0f,0.0f,1.0f); // Basic color
                 }
-                glBegin(GL_LINES);
             }
 
+            glBegin(GL_LINES);
+
             glVertex3f(0,0,0);
             glVertex3f(w,h,z);
             glVertex3f(0,0,0);
@@ -254,11 +254,10 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
 
             glVertex3f(-w,-h,z);
             glVertex3f(w,-h,z);
+
             glEnd();
 
             glPopMatrix();
-
-            glEnd();
         }
     }
 
@@ -358,15 +357,15 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
                 {
                     glLineWidth(mKeyFrameLineWidth*5);
                     glColor3f(1.0f,0.0f,0.0f);
-                    glBegin(GL_LINES);
                 }
                 else
                 {
                     glLineWidth(mKeyFrameLineWidth);
                     glColor3f(mfFrameColors[index_color][0],mfFrameColors[index_color][1],mfFrameColors[index_color][2]);
-                    glBegin(GL_LINES);
                 }
 
+                glBegin(GL_LINES);
+
                 glVertex3f(0,0,0);
                 glVertex3f(w,h,z);
                 glVertex3f(0,0,0);
@@ -387,6 +386,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph, const b
 
                 glVertex3f(-w,-h,z);
                 glVertex3f(w,-h,z);
+
                 glEnd();
 
                 glPopMatrix();
