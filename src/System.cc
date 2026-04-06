@@ -20,7 +20,9 @@
 
 #include "System.h"
 #include "Converter.h"
+#include "SocketPublisher.h"
 #include <thread>
+#include <fstream>
 #include <pangolin/pangolin.h>
 #include <iomanip>
 #include <openssl/md5.h>
@@ -41,7 +43,8 @@ Verbose::eLevel Verbose::th = Verbose::VERBOSITY_NORMAL;
 System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor,
                const bool bUseViewer, const int initFr, const string &strSequence):
     mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mbReset(false), mbResetActiveMap(false),
-    mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false), mbShutDown(false)
+    mbActivateLocalizationMode(false), mbDeactivateLocalizationMode(false), mbShutDown(false),
+    mpSocketPublisher(nullptr)
 {
     // Output welcome message
     cout << endl <<
@@ -111,11 +114,31 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
     if(mStrLoadAtlasFromFile.empty())
     {
-        //Load ORB Vocabulary
-        cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
+        //Load ORB Vocabulary — try binary first, fall back to text + auto-convert
+        cout << endl << "Loading ORB Vocabulary..." << endl;
 
         mpVocabulary = new ORBVocabulary();
-        bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
+        std::string binVocFile = strVocFile + ".bin";
+        bool bVocLoad = false;
+        {
+            std::ifstream testBin(binVocFile, std::ios::binary);
+            if(testBin.good()) {
+                testBin.close();
+                cout << "  Found binary vocab: " << binVocFile << endl;
+                bVocLoad = mpVocabulary->loadFromBinaryFile(binVocFile);
+                if(bVocLoad) cout << "  Binary vocab loaded!" << endl;
+            }
+        }
+        if(!bVocLoad)
+        {
+            cout << "  Loading text vocab (slow, one-time)..." << endl;
+            bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
+            if(bVocLoad) {
+                cout << "  Saving binary vocab for next time..." << endl;
+                mpVocabulary->saveToBinaryFile(binVocFile);
+                cout << "  Saved: " << binVocFile << endl;
+            }
+        }
         if(!bVocLoad)
         {
             cerr << "Wrong path to vocabulary. " << endl;
@@ -133,11 +156,28 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
     else
     {
-        //Load ORB Vocabulary
-        cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
+        //Load ORB Vocabulary — try binary first, fall back to text + auto-convert
+        cout << endl << "Loading ORB Vocabulary..." << endl;
 
         mpVocabulary = new ORBVocabulary();
-        bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
+        std::string binVocFile2 = strVocFile + ".bin";
+        bool bVocLoad = false;
+        {
+            std::ifstream testBin(binVocFile2, std::ios::binary);
+            if(testBin.good()) {
+                testBin.close();
+                bVocLoad = mpVocabulary->loadFromBinaryFile(binVocFile2);
+            }
+        }
+        if(!bVocLoad)
+        {
+            cout << "  Loading text vocab (slow, one-time)..." << endl;
+            bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
+            if(bVocLoad) {
+                mpVocabulary->saveToBinaryFile(binVocFile2);
+                cout << "  Saved binary: " << binVocFile2 << endl;
+            }
+        }
         if(!bVocLoad)
         {
             cerr << "Wrong path to vocabulary. " << endl;
@@ -238,6 +278,58 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
     // Fix verbosity
     Verbose::SetTh(Verbose::VERBOSITY_QUIET);
+
+    // Initialize the Socket Publisher for Spatial Service integration.
+    // Read socket path from settings, default to /tmp/orbslam3.sock.
+    std::string socketPath = "/tmp/orbslam3.sock";
+    {
+        cv::FileNode sockNode = fsSettings["SocketPublisher.path"];
+        if (!sockNode.empty() && sockNode.isString())
+            socketPath = static_cast<std::string>(sockNode);
+    }
+    uint16_t cameraId = 0;
+    {
+        cv::FileNode camIdNode = fsSettings["SocketPublisher.cameraId"];
+        if (!camIdNode.empty())
+            cameraId = static_cast<uint16_t>(static_cast<int>(camIdNode));
+    }
+
+    mpSocketPublisher = new SocketPublisher(this, mpAtlas, socketPath, cameraId);
+
+    // Set camera intrinsics from settings file.
+    {
+        double fx = 0, fy = 0, cx = 0, cy = 0;
+        uint32_t imW = 0, imH = 0;
+        if (settings_) {
+            // New format (File.version == "1.0"): uses Settings accessors
+            imW = static_cast<uint32_t>(settings_->newImSize().width);
+            imH = static_cast<uint32_t>(settings_->newImSize().height);
+            fx = static_cast<double>(settings_->camera1()->getParameter(0));
+            fy = static_cast<double>(settings_->camera1()->getParameter(1));
+            cx = static_cast<double>(settings_->camera1()->getParameter(2));
+            cy = static_cast<double>(settings_->camera1()->getParameter(3));
+        } else {
+            // Old format: read directly from FileStorage
+            cv::FileNode wNode = fsSettings["Camera.width"];
+            cv::FileNode hNode = fsSettings["Camera.height"];
+            if (!wNode.empty()) imW = static_cast<uint32_t>(static_cast<int>(wNode));
+            if (!hNode.empty()) imH = static_cast<uint32_t>(static_cast<int>(hNode));
+            cv::FileNode fxNode = fsSettings["Camera.fx"];
+            cv::FileNode fyNode = fsSettings["Camera.fy"];
+            cv::FileNode cxNode = fsSettings["Camera.cx"];
+            cv::FileNode cyNode = fsSettings["Camera.cy"];
+            if (!fxNode.empty()) fx = static_cast<double>(static_cast<float>(fxNode));
+            if (!fyNode.empty()) fy = static_cast<double>(static_cast<float>(fyNode));
+            if (!cxNode.empty()) cx = static_cast<double>(static_cast<float>(cxNode));
+            if (!cyNode.empty()) cy = static_cast<double>(static_cast<float>(cyNode));
+        }
+        mpSocketPublisher->SetCameraIntrinsics(fx, fy, cx, cy, imW, imH);
+    }
+
+    // Wire SocketPublisher into LoopClosing for loop closure notifications
+    mpLoopCloser->mpSocketPublisher = mpSocketPublisher;
+
+    mpSocketPublisher->Start();
 }
 
 void System::RunViewer()  {
@@ -327,6 +419,16 @@ Sophus::SE3f System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, 
     mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
     mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
 
+    // Publish to Spatial Service via UDS
+    if (mpSocketPublisher) {
+        mpSocketPublisher->PublishFrame(mTrackedMapPoints, mTrackedKeyPointsUn,
+                                        timestamp, mTrackingState);
+        if (mTrackingState == Tracking::OK) {
+            mpSocketPublisher->PublishKeyframePose(
+                Tcw.matrix(), timestamp, false, mTrackingState);
+        }
+    }
+
     return Tcw;
 }
 
@@ -398,6 +500,17 @@ Sophus::SE3f System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const
     mTrackingState = mpTracker->mState;
     mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
     mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
+
+    // Publish to Spatial Service via UDS
+    if (mpSocketPublisher) {
+        mpSocketPublisher->PublishFrame(mTrackedMapPoints, mTrackedKeyPointsUn,
+                                        timestamp, mTrackingState);
+        if (mTrackingState == Tracking::OK) {
+            mpSocketPublisher->PublishKeyframePose(
+                Tcw.matrix(), timestamp, false, mTrackingState);
+        }
+    }
+
     return Tcw;
 }
 
@@ -474,6 +587,16 @@ Sophus::SE3f System::TrackMonocular(const cv::Mat &im, const double &timestamp, 
     mTrackingState = mpTracker->mState;
     mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
     mTrackedKeyPointsUn = mpTracker->mCurrentFrame.mvKeysUn;
+
+    // Publish to Spatial Service via UDS
+    if (mpSocketPublisher) {
+        mpSocketPublisher->PublishFrame(mTrackedMapPoints, mTrackedKeyPointsUn,
+                                        timestamp, mTrackingState);
+        if (mTrackingState == Tracking::OK) {
+            mpSocketPublisher->PublishKeyframePose(
+                Tcw.matrix(), timestamp, false, mTrackingState);
+        }
+    }
 
     return Tcw;
 }
@@ -558,6 +681,13 @@ void System::Shutdown()
 
     /*if(mpViewer)
         pangolin::BindToContext("ORB-SLAM2: Map Viewer");*/
+
+    // Stop socket publisher
+    if (mpSocketPublisher) {
+        mpSocketPublisher->Stop();
+        delete mpSocketPublisher;
+        mpSocketPublisher = nullptr;
+    }
 
 #ifdef REGISTER_TIMES
     mpTracker->PrintTimeStats();

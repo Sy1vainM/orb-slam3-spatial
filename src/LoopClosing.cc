@@ -18,6 +18,7 @@
 
 
 #include "LoopClosing.h"
+#include "SocketPublisher.h"
 
 #include "Sim3Solver.h"
 #include "Converter.h"
@@ -1206,8 +1207,12 @@ void LoopClosing::CorrectLoop()
         mpThreadGBA = new thread(&LoopClosing::RunGlobalBundleAdjustment, this, pLoopMap, mpCurrentKF->mnId);
     }
 
+    // Notify SocketPublisher that a loop closure occurred
+    if (mpSocketPublisher)
+        mpSocketPublisher->SetLoopClosure();
+
     // Loop closed. Release Local Mapping.
-    mpLocalMapper->Release();    
+    mpLocalMapper->Release();
 
     mLastLoopKFid = mpCurrentKF->mnId; //TODO old varible, it is not use in the new algorithm
 }

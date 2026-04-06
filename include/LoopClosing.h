@@ -40,6 +40,7 @@ class Tracking;
 class LocalMapping;
 class KeyFrameDatabase;
 class Map;
+class SocketPublisher;
 
 
 class LoopClosing
@@ -83,6 +84,9 @@ public:
     bool isFinished();
 
     Viewer* mpViewer;
+
+    // Socket publisher for notifying Spatial Service of loop closures
+    SocketPublisher* mpSocketPublisher = nullptr;
 
 #ifdef REGISTER_TIMES
 
@@ -223,7 +227,7 @@ protected:
     bool mbFixScale;
 
 
-    bool mnFullBAIdx;
+    int mnFullBAIdx;
 
 
 

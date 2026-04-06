@@ -39,6 +39,7 @@
 #include "Viewer.h"
 #include "ImuTypes.h"
 #include "Settings.h"
+#include "SocketPublisher.h"
 
 
 namespace ORB_SLAM3
@@ -79,6 +80,7 @@ class Tracking;
 class LocalMapping;
 class LoopClosing;
 class Settings;
+class SocketPublisher;
 
 class System
 {
@@ -186,6 +188,9 @@ public:
 
     float GetImageScale();
 
+    // Socket publisher accessor (for LoopClosing integration)
+    SocketPublisher* GetSocketPublisher() { return mpSocketPublisher; }
+
 #ifdef REGISTER_TIMES
     void InsertRectTime(double& time);
     void InsertResizeTime(double& time);
@@ -264,6 +269,9 @@ private:
     string mStrVocabularyFilePath;
 
     Settings* settings_;
+
+    // Socket publisher for Spatial Service integration
+    SocketPublisher* mpSocketPublisher;
 };
 
 }// namespace ORB_SLAM
