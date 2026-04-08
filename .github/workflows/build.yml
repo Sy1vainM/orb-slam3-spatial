@@ -44,7 +44,26 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install opencv eigen boost openssl@3 glew
+          # libomp: AppleClang doesn't ship OpenMP by default, g2o needs it
+          brew install opencv boost openssl@3 glew libomp
+          # Eigen: brew now ships Eigen 5.x but g2o uses find_package(Eigen3 3.1.0)
+          # which Eigen 5's cmake config rejects. Install Eigen 3.4.0 from source
+          # into a local prefix that we point cmake at.
+          EIGEN_INSTALL_DIR="$RUNNER_TEMP/eigen-3.4.0"
+          git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tmp/eigen-src
+          cmake -S /tmp/eigen-src -B /tmp/eigen-src/build \
+            -DCMAKE_INSTALL_PREFIX="$EIGEN_INSTALL_DIR" \
+            -DBUILD_TESTING=OFF
+          cmake --build /tmp/eigen-src/build --target install
+          echo "EIGEN3_ROOT=$EIGEN_INSTALL_DIR" >> $GITHUB_ENV
+          echo "Eigen3_DIR=$EIGEN_INSTALL_DIR/share/eigen3/cmake" >> $GITHUB_ENV
+          # libomp paths for AppleClang OpenMP
+          LIBOMP_PREFIX="$(brew --prefix libomp)"
+          echo "OpenMP_C_FLAGS=-Xpreprocessor -fopenmp -I$LIBOMP_PREFIX/include" >> $GITHUB_ENV
+          echo "OpenMP_C_LIB_NAMES=omp" >> $GITHUB_ENV
+          echo "OpenMP_CXX_FLAGS=-Xpreprocessor -fopenmp -I$LIBOMP_PREFIX/include" >> $GITHUB_ENV
+          echo "OpenMP_CXX_LIB_NAMES=omp" >> $GITHUB_ENV
+          echo "OpenMP_omp_LIBRARY=$LIBOMP_PREFIX/lib/libomp.dylib" >> $GITHUB_ENV
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
