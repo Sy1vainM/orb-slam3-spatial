@@ -280,9 +280,13 @@ jobs:
           cp lib/libORB_SLAM3.dylib staging/libs/
           cp Thirdparty/DBoW2/lib/libDBoW2.dylib staging/libs/
           cp Thirdparty/g2o/lib/libg2o.dylib staging/libs/
-          # All Pangolin build outputs (not just libpango_* — also libtinyobj,
-          # libpango_python, etc. which are referenced via @rpath/)
+          # All Pangolin build outputs (libtinyobj, libpango_python, etc.
+          # referenced via @rpath/)
           cp Thirdparty/Pangolin/build/*.dylib staging/libs/ 2>/dev/null || true
+          # Minimal OpenCV we built from source — all its libs are @rpath/
+          # references and our dep walker skips @-prefixed paths, so copy
+          # them explicitly.
+          cp -L "$RUNNER_TEMP/opencv-minimal/lib/libopencv_"*.dylib staging/libs/ 2>/dev/null || true
 
           # Helper: identify "non-system" dependencies. We relocate anything
           # that's NOT in /usr/lib, /System, or @rpath (already relative).
@@ -364,6 +368,9 @@ jobs:
           cp Thirdparty/DBoW2/lib/libDBoW2.so staging/lib/
           cp Thirdparty/g2o/lib/libg2o.so staging/lib/
           cp Examples/Monocular/mono_tum staging/bin/
+          # Minimal OpenCV libs built from source (ldd resolves these
+          # already but copy explicitly to be safe)
+          cp -L "$RUNNER_TEMP/opencv-minimal/lib/libopencv_"*.so* staging/lib/ 2>/dev/null || true
           # Copy all non-system dylib dependencies from ldd output
           copy_deps() {
             local bin="$1"
