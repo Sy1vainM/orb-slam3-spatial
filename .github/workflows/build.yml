@@ -116,6 +116,13 @@ jobs:
             -DWITH_CUDA=OFF \
             -DWITH_OPENVX=OFF \
             -DWITH_1394=OFF \
+            -DWITH_OBSENSOR=OFF \
+            -DWITH_ARAVIS=OFF \
+            -DWITH_MSMF=OFF \
+            -DWITH_DSHOW=OFF \
+            -DWITH_PVAPI=OFF \
+            -DWITH_XIMEA=OFF \
+            -DWITH_ANDROID_MEDIANDK=OFF \
             -DWITH_LIBV4L=OFF \
             -DWITH_V4L=OFF \
             -DWITH_GTK_2_X=OFF \
@@ -178,6 +185,13 @@ jobs:
             -DWITH_CUDA=OFF \
             -DWITH_OPENVX=OFF \
             -DWITH_1394=OFF \
+            -DWITH_OBSENSOR=OFF \
+            -DWITH_ARAVIS=OFF \
+            -DWITH_MSMF=OFF \
+            -DWITH_DSHOW=OFF \
+            -DWITH_PVAPI=OFF \
+            -DWITH_XIMEA=OFF \
+            -DWITH_ANDROID_MEDIANDK=OFF \
             -DWITH_LIBV4L=OFF \
             -DWITH_V4L=OFF \
             -DWITH_GTK_2_X=OFF \
