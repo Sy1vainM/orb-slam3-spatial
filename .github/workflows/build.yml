@@ -28,19 +28,30 @@ jobs:
         with:
           submodules: recursive
 
+      # ----- Pin CMake 3.22 to match what ORB-SLAM3 was developed against -----
+      # Newer cmake (4.x) removes support for cmake_minimum_required < 3.5
+      # which breaks ORB-SLAM3's bundled Thirdparty (DBoW2 2.8, g2o 2.6).
+      # Rather than patch every legacy CMakeLists.txt, we pin to 3.22.6
+      # which is modern enough to handle our workflow but still supports
+      # the legacy VERSION declarations.
+      - name: Install CMake 3.22.6
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.22.6'
+
       # ----- Dependencies -----
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew update
-          brew install cmake opencv eigen boost openssl@3 glew
+          brew install opencv eigen boost openssl@3 glew
 
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake git pkg-config \
+            build-essential git pkg-config \
             libopencv-dev libeigen3-dev libboost-all-dev libssl-dev \
             libgl1-mesa-dev libglew-dev libwayland-dev libxkbcommon-dev \
             wayland-protocols libegl1-mesa-dev libepoxy-dev \
