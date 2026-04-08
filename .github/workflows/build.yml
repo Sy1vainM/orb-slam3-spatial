@@ -173,12 +173,21 @@ jobs:
           cp Thirdparty/g2o/lib/libg2o.dylib staging/libs/
           cp Thirdparty/Pangolin/build/libpango_*.dylib staging/libs/ 2>/dev/null || true
 
-          # Helper: copy any /opt/homebrew absolute-path dependency into libs/
-          # Only top-level deps + one level of transitive (enough for opencv
-          # internal refs like opencv_imgproc → opencv_core).
-          copy_homebrew_deps() {
+          # Helper: identify "non-system" dependencies. We relocate anything
+          # that's NOT in /usr/lib, /System, or @rpath (already relative).
+          # This catches both /opt/homebrew/* (brew deps) AND /Users/runner/*
+          # (ORB-SLAM3's own build-tree install_names on libORB_SLAM3.dylib).
+          list_nonsys_deps() {
+            otool -L "$1" 2>/dev/null | tail -n +2 | awk '{print $1}' | \
+              grep -vE '^/usr/lib/|^/System/|^@' || true
+          }
+
+          # Helper: copy a non-system dependency into libs/ if we can find it
+          # on disk.
+          copy_nonsys_deps() {
             local target="$1"
-            otool -L "$target" 2>/dev/null | awk "/\/opt\/homebrew/ {print \$1}" | while read -r dep; do
+            list_nonsys_deps "$target" | while read -r dep; do
+              [ -z "$dep" ] && continue
               local name=$(basename "$dep")
               if [ ! -f "staging/libs/$name" ] && [ -f "$dep" ]; then
                 cp "$dep" staging/libs/
@@ -187,17 +196,11 @@ jobs:
             done
           }
 
-          # Two passes: first copy direct deps of our binaries,
-          # then copy deps of those (transitive level 1).
-          for f in staging/bin/mono_tum staging/libs/*.dylib; do
-            copy_homebrew_deps "$f"
-          done
-          for f in staging/libs/*.dylib; do
-            copy_homebrew_deps "$f"
-          done
-          # One more pass to catch opencv's internal chains
-          for f in staging/libs/*.dylib; do
-            copy_homebrew_deps "$f"
+          # Three passes to catch opencv's internal dependency chains.
+          for pass in 1 2 3; do
+            for f in staging/bin/mono_tum staging/libs/*.dylib; do
+              copy_nonsys_deps "$f"
+            done
           done
 
           echo "Copied $(ls staging/libs/ | wc -l) libs"
@@ -208,12 +211,13 @@ jobs:
           # so from bin → ../../libs/. For the libs themselves → ./
           rewrite_paths() {
             local target="$1"
-            local rel_libs="$2"  # either "../../libs" (for mono_tum) or "." (for libs)
-            otool -L "$target" 2>/dev/null | awk "/\/opt\/homebrew/ {print \$1}" | while read -r dep; do
+            local rel_libs="$2"  # "../../libs" for mono_tum, "." for sibling libs
+            list_nonsys_deps "$target" | while read -r dep; do
+              [ -z "$dep" ] && continue
               local name=$(basename "$dep")
               install_name_tool -change "$dep" "@loader_path/$rel_libs/$name" "$target"
             done
-            # Also fix self install_name for libs (so the dyld cache matches)
+            # Also fix self install_name for libs (so dyld cache matches)
             if [[ "$target" == *.dylib ]]; then
               local selfname=$(basename "$target")
               install_name_tool -id "@rpath/$selfname" "$target" 2>/dev/null || true
