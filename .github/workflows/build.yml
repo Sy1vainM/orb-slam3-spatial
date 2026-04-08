@@ -171,7 +171,9 @@ jobs:
           cp lib/libORB_SLAM3.dylib staging/libs/
           cp Thirdparty/DBoW2/lib/libDBoW2.dylib staging/libs/
           cp Thirdparty/g2o/lib/libg2o.dylib staging/libs/
-          cp Thirdparty/Pangolin/build/libpango_*.dylib staging/libs/ 2>/dev/null || true
+          # All Pangolin build outputs (not just libpango_* — also libtinyobj,
+          # libpango_python, etc. which are referenced via @rpath/)
+          cp Thirdparty/Pangolin/build/*.dylib staging/libs/ 2>/dev/null || true
 
           # Helper: identify "non-system" dependencies. We relocate anything
           # that's NOT in /usr/lib, /System, or @rpath (already relative).
@@ -228,8 +230,13 @@ jobs:
           for f in staging/libs/*.dylib; do
             rewrite_paths "$f" "."
           done
-          # Add rpath to mono_tum pointing at libs/
+          # mono_tum: rpath points to libs/ (for @rpath-prefixed deps)
           install_name_tool -add_rpath "@loader_path/../../libs" staging/bin/mono_tum 2>/dev/null || true
+          # Each lib in libs/: add @loader_path as rpath so sibling @rpath/
+          # references (e.g. libtinyobj → libpango_geometry) resolve.
+          for f in staging/libs/*.dylib; do
+            install_name_tool -add_rpath "@loader_path" "$f" 2>/dev/null || true
+          done
           # Resign to avoid macOS Gatekeeper rejection after modification
           codesign --force --sign - staging/bin/mono_tum
           for f in staging/libs/*.dylib; do
