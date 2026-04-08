@@ -45,15 +45,18 @@ jobs:
           cmake-version: '3.22.6'
 
       # ----- Dependencies -----
-      - name: Install dependencies (macOS)
+      # Install only system-level basics via brew. We DON'T install brew's
+      # opencv because it's a kitchen-sink build that drags in Qt6,
+      # OpenEXR, JXL, AVIF, GStreamer, FFmpeg, VTK — hundreds of MB of
+      # transitive deps we'd have to bundle.
+      # Instead we build a minimal OpenCV from source below.
+      - name: Install basic dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew update
-          # libomp: AppleClang doesn't ship OpenMP by default, g2o needs it
-          brew install opencv boost openssl@3 glew libomp
-          # Eigen: brew now ships Eigen 5.x but g2o uses find_package(Eigen3 3.1.0)
-          # which Eigen 5's cmake config rejects. Install Eigen 3.4.0 from source
-          # into a local prefix that we point cmake at.
+          brew install boost openssl@3 glew libomp libjpeg libpng
+          # Eigen: brew ships 5.x but g2o uses find_package(Eigen3 3.1.0).
+          # Build Eigen 3.4.0 from source into a local prefix.
           EIGEN_INSTALL_DIR="$RUNNER_TEMP/eigen-3.4.0"
           git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tmp/eigen-src
           cmake -S /tmp/eigen-src -B /tmp/eigen-src/build \
@@ -62,7 +65,7 @@ jobs:
           cmake --build /tmp/eigen-src/build --target install
           echo "EIGEN3_ROOT=$EIGEN_INSTALL_DIR" >> $GITHUB_ENV
           echo "Eigen3_DIR=$EIGEN_INSTALL_DIR/share/eigen3/cmake" >> $GITHUB_ENV
-          # libomp paths for AppleClang OpenMP
+          # libomp for AppleClang OpenMP
           LIBOMP_PREFIX="$(brew --prefix libomp)"
           echo "OpenMP_C_FLAGS=-Xpreprocessor -fopenmp -I$LIBOMP_PREFIX/include" >> $GITHUB_ENV
           echo "OpenMP_C_LIB_NAMES=omp" >> $GITHUB_ENV
@@ -70,17 +73,120 @@ jobs:
           echo "OpenMP_CXX_LIB_NAMES=omp" >> $GITHUB_ENV
           echo "OpenMP_omp_LIBRARY=$LIBOMP_PREFIX/lib/libomp.dylib" >> $GITHUB_ENV
 
-      - name: Install dependencies (Ubuntu)
+      # Build a minimal OpenCV from source on macOS. Only the modules ORB-SLAM3
+      # actually needs, with all optional image format codecs, GUI toolkits,
+      # video backends and contrib features disabled. This is the single
+      # biggest reduction in final artifact size.
+      - name: Build minimal OpenCV from source (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          OPENCV_VER=4.10.0
+          OPENCV_PREFIX="$RUNNER_TEMP/opencv-minimal"
+          git clone --depth 1 --branch "$OPENCV_VER" \
+            https://github.com/opencv/opencv.git /tmp/opencv-src
+          cmake -S /tmp/opencv-src -B /tmp/opencv-src/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$OPENCV_PREFIX" \
+            -DBUILD_LIST=core,imgproc,imgcodecs,highgui,videoio,calib3d,features2d,flann,dnn,photo,xphoto \
+            -DBUILD_opencv_apps=OFF \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_PERF_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_DOCS=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_python2=OFF \
+            -DBUILD_opencv_python3=OFF \
+            -DBUILD_PROTOBUF=OFF \
+            -DWITH_PROTOBUF=OFF \
+            -DWITH_QT=OFF \
+            -DWITH_GTK=OFF \
+            -DWITH_OPENEXR=OFF \
+            -DWITH_JASPER=OFF \
+            -DWITH_OPENJPEG=OFF \
+            -DWITH_WEBP=OFF \
+            -DWITH_AVIF=OFF \
+            -DWITH_JPEGXL=OFF \
+            -DWITH_TIFF=OFF \
+            -DWITH_FFMPEG=OFF \
+            -DWITH_GSTREAMER=OFF \
+            -DWITH_VTK=OFF \
+            -DWITH_IPP=OFF \
+            -DWITH_ADE=OFF \
+            -DWITH_OPENCL=OFF \
+            -DWITH_CUDA=OFF \
+            -DWITH_OPENVX=OFF \
+            -DWITH_1394=OFF \
+            -DWITH_LIBV4L=OFF \
+            -DWITH_V4L=OFF \
+            -DWITH_GTK_2_X=OFF \
+            -DOPENCV_ENABLE_NONFREE=OFF
+          cmake --build /tmp/opencv-src/build -- -j$(getconf _NPROCESSORS_ONLN)
+          cmake --install /tmp/opencv-src/build
+          echo "OpenCV_DIR=$OPENCV_PREFIX/lib/cmake/opencv4" >> $GITHUB_ENV
+          du -sh "$OPENCV_PREFIX"
+          ls "$OPENCV_PREFIX/lib" | head -20
+
+      - name: Install basic dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential git pkg-config \
-            libopencv-dev libeigen3-dev libboost-all-dev libssl-dev \
+            libeigen3-dev libboost-all-dev libssl-dev \
+            libjpeg-dev libpng-dev \
             libgl1-mesa-dev libglew-dev libwayland-dev libxkbcommon-dev \
             wayland-protocols libegl1-mesa-dev libepoxy-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-            python3
+            python3 patchelf
+
+      - name: Build minimal OpenCV from source (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          OPENCV_VER=4.10.0
+          OPENCV_PREFIX="$RUNNER_TEMP/opencv-minimal"
+          git clone --depth 1 --branch "$OPENCV_VER" \
+            https://github.com/opencv/opencv.git /tmp/opencv-src
+          cmake -S /tmp/opencv-src -B /tmp/opencv-src/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$OPENCV_PREFIX" \
+            -DBUILD_LIST=core,imgproc,imgcodecs,highgui,videoio,calib3d,features2d,flann,dnn,photo,xphoto \
+            -DBUILD_opencv_apps=OFF \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_PERF_TESTS=OFF \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_DOCS=OFF \
+            -DBUILD_JAVA=OFF \
+            -DBUILD_opencv_python2=OFF \
+            -DBUILD_opencv_python3=OFF \
+            -DBUILD_PROTOBUF=OFF \
+            -DWITH_PROTOBUF=OFF \
+            -DWITH_QT=OFF \
+            -DWITH_GTK=OFF \
+            -DWITH_OPENEXR=OFF \
+            -DWITH_JASPER=OFF \
+            -DWITH_OPENJPEG=OFF \
+            -DWITH_WEBP=OFF \
+            -DWITH_AVIF=OFF \
+            -DWITH_JPEGXL=OFF \
+            -DWITH_TIFF=OFF \
+            -DWITH_FFMPEG=OFF \
+            -DWITH_GSTREAMER=OFF \
+            -DWITH_VTK=OFF \
+            -DWITH_IPP=OFF \
+            -DWITH_ADE=OFF \
+            -DWITH_OPENCL=OFF \
+            -DWITH_CUDA=OFF \
+            -DWITH_OPENVX=OFF \
+            -DWITH_1394=OFF \
+            -DWITH_LIBV4L=OFF \
+            -DWITH_V4L=OFF \
+            -DWITH_GTK_2_X=OFF \
+            -DOPENCV_ENABLE_NONFREE=OFF
+          cmake --build /tmp/opencv-src/build -- -j$(getconf _NPROCESSORS_ONLN)
+          cmake --install /tmp/opencv-src/build
+          echo "OpenCV_DIR=$OPENCV_PREFIX/lib/cmake/opencv4" >> $GITHUB_ENV
+          du -sh "$OPENCV_PREFIX"
+          ls "$OPENCV_PREFIX/lib" | head -20
 
       # ----- Thirdparty: DBoW2 -----
       - name: Build DBoW2
@@ -146,7 +252,10 @@ jobs:
 
       # ----- ORB_SLAM3 -----
       - name: Configure ORB_SLAM3
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOpenCV_DIR="$OpenCV_DIR"
 
       - name: Build ORB_SLAM3
         run: cmake --build build -- -j$(getconf _NPROCESSORS_ONLN)
@@ -250,7 +359,6 @@ jobs:
       - name: Bundle shared libs (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get install -y patchelf
           mkdir -p staging/lib staging/bin
           cp lib/libORB_SLAM3.so staging/lib/
           cp Thirdparty/DBoW2/lib/libDBoW2.so staging/lib/
