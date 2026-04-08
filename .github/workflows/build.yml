@@ -153,28 +153,85 @@ jobs:
 
       # ----- Bundle dependent libs (macOS) -----
       # The built mono_tum + libORB_SLAM3.dylib reference absolute paths like
-       # /opt/homebrew/opt/opencv/lib/libopencv_*.dylib which don't exist on
-      # other machines. Use dylibbundler to copy all non-system dylibs into
-      # a local lib/ directory and rewrite install names to @loader_path-style.
+      # /opt/homebrew/opt/opencv/lib/libopencv_*.dylib which don't exist on
+      # user machines. We copy only the direct Homebrew dependencies and
+      # rewrite install names with install_name_tool.
+      #
+      # Note: we tried dylibbundler first but it recurses the full dylib
+      # tree, and Homebrew's opencv pulls in gstreamer/ffmpeg/qt/tesseract
+      # (hundreds of libs, 20+ minutes to process). This manual approach
+      # limits scope to what mono_tum actually needs at the first level
+      # and one level of transitive (opencv→libavcodec etc).
       - name: Bundle dylibs (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install dylibbundler
-          mkdir -p staging/lib staging/bin
-          cp lib/libORB_SLAM3.dylib staging/lib/
-          cp Thirdparty/DBoW2/lib/libDBoW2.dylib staging/lib/
-          cp Thirdparty/g2o/lib/libg2o.dylib staging/lib/
+          set -e
+          mkdir -p staging/bin staging/libs
           cp Examples/Monocular/mono_tum staging/bin/
-          # dylibbundler rewrites absolute @rpath → @loader_path/../libs/
-          # for the binary AND every library it recursively depends on.
-          dylibbundler -od -b \
-            -x staging/bin/mono_tum \
-            -x staging/lib/libORB_SLAM3.dylib \
-            -x staging/lib/libDBoW2.dylib \
-            -x staging/lib/libg2o.dylib \
-            -d staging/libs -p @loader_path/../libs/
-          ls -lh staging/libs/ | head -20
-          echo "bundled lib count: $(ls staging/libs/ | wc -l)"
+          cp lib/libORB_SLAM3.dylib staging/libs/
+          cp Thirdparty/DBoW2/lib/libDBoW2.dylib staging/libs/
+          cp Thirdparty/g2o/lib/libg2o.dylib staging/libs/
+          cp Thirdparty/Pangolin/build/libpango_*.dylib staging/libs/ 2>/dev/null || true
+
+          # Helper: copy any /opt/homebrew absolute-path dependency into libs/
+          # Only top-level deps + one level of transitive (enough for opencv
+          # internal refs like opencv_imgproc → opencv_core).
+          copy_homebrew_deps() {
+            local target="$1"
+            otool -L "$target" 2>/dev/null | awk "/\/opt\/homebrew/ {print \$1}" | while read -r dep; do
+              local name=$(basename "$dep")
+              if [ ! -f "staging/libs/$name" ] && [ -f "$dep" ]; then
+                cp "$dep" staging/libs/
+                chmod u+w "staging/libs/$name"
+              fi
+            done
+          }
+
+          # Two passes: first copy direct deps of our binaries,
+          # then copy deps of those (transitive level 1).
+          for f in staging/bin/mono_tum staging/libs/*.dylib; do
+            copy_homebrew_deps "$f"
+          done
+          for f in staging/libs/*.dylib; do
+            copy_homebrew_deps "$f"
+          done
+          # One more pass to catch opencv's internal chains
+          for f in staging/libs/*.dylib; do
+            copy_homebrew_deps "$f"
+          done
+
+          echo "Copied $(ls staging/libs/ | wc -l) libs"
+          ls staging/libs/ | head -30
+
+          # Rewrite install names: @loader_path-relative for all binaries.
+          # mono_tum lives at Examples/Monocular/, libs/ at dist root,
+          # so from bin → ../../libs/. For the libs themselves → ./
+          rewrite_paths() {
+            local target="$1"
+            local rel_libs="$2"  # either "../../libs" (for mono_tum) or "." (for libs)
+            otool -L "$target" 2>/dev/null | awk "/\/opt\/homebrew/ {print \$1}" | while read -r dep; do
+              local name=$(basename "$dep")
+              install_name_tool -change "$dep" "@loader_path/$rel_libs/$name" "$target"
+            done
+            # Also fix self install_name for libs (so the dyld cache matches)
+            if [[ "$target" == *.dylib ]]; then
+              local selfname=$(basename "$target")
+              install_name_tool -id "@rpath/$selfname" "$target" 2>/dev/null || true
+            fi
+          }
+
+          rewrite_paths staging/bin/mono_tum "../../libs"
+          for f in staging/libs/*.dylib; do
+            rewrite_paths "$f" "."
+          done
+          # Add rpath to mono_tum pointing at libs/
+          install_name_tool -add_rpath "@loader_path/../../libs" staging/bin/mono_tum 2>/dev/null || true
+          # Resign to avoid macOS Gatekeeper rejection after modification
+          codesign --force --sign - staging/bin/mono_tum
+          for f in staging/libs/*.dylib; do
+            codesign --force --sign - "$f"
+          done
+          echo "Bundling done in $(date)"
 
       # ----- Bundle dependent libs (Linux) -----
       # patchelf adjusts RPATH on linux ELF binaries. Copy dependent shared
@@ -219,8 +276,7 @@ jobs:
       - name: Package artifact
         run: |
           ARCHIVE="orb-slam3-spatial-${{ matrix.platform_tag }}.tar.gz"
-          # Assemble final layout
-          mkdir -p dist/Examples/Monocular dist/Vocabulary dist/lib
+          mkdir -p dist/Examples/Monocular dist/Vocabulary
           cp staging/bin/mono_tum dist/Examples/Monocular/
           cp Vocabulary/ORBvoc.txt dist/Vocabulary/
           cp Examples/Monocular/TUM1.yaml dist/Examples/Monocular/
@@ -228,15 +284,20 @@ jobs:
           cp Examples/Monocular/TUM3.yaml dist/Examples/Monocular/
           cp Examples/Monocular/TUM1_tuned.yaml dist/Examples/Monocular/
           cp Examples/Monocular/Generic720.yaml dist/Examples/Monocular/
-          # Copy bundled libs — macOS uses libs/, Linux uses lib/
+          # Bundled libs live at dist root:
+          #   macOS: dist/libs/*.dylib  (@loader_path/../../libs from mono_tum)
+          #   Linux: dist/lib/*.so*      ($ORIGIN/../lib from mono_tum)
           if [ "$RUNNER_OS" = "macOS" ]; then
-            cp -R staging/libs dist/libs
-            cp staging/lib/*.dylib dist/lib/
+            mkdir -p dist/libs
+            cp staging/libs/*.dylib dist/libs/
           else
+            mkdir -p dist/lib
             cp staging/lib/*.so* dist/lib/
           fi
           tar czf "$ARCHIVE" -C dist .
           ls -lh "$ARCHIVE"
+          echo "--- archive contents summary ---"
+          tar tzf "$ARCHIVE" | head -30
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
