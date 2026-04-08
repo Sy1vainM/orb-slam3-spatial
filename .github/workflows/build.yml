@@ -5,7 +5,12 @@ on:
     branches:
       - master
       - feat/socket-publisher
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+permissions:
+  contents: write  # needed to create releases
 
 jobs:
   build:
@@ -169,3 +174,31 @@ jobs:
           name: orb-slam3-spatial-${{ matrix.platform_tag }}
           path: orb-slam3-spatial-${{ matrix.platform_tag }}.tar.gz
           retention-days: 30
+
+  # ----- Release: triggered only on version tag push -----
+  # When you push a tag like `v1.0.0`, this job downloads all platform
+  # artifacts from the matrix build and publishes them as a GitHub Release.
+  # visionmem/scripts/setup.sh downloads from releases/latest/download/*.
+  release:
+    name: Publish Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact tree
+        run: |
+          mkdir -p release-files
+          find artifacts -name '*.tar.gz' -exec cp {} release-files/ \;
+          ls -lh release-files/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true
