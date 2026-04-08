@@ -47,7 +47,7 @@ int main(int argc, char **argv)
     int nImages = vstrImageFilenames.size();
 
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
-    ORB_SLAM3::System SLAM(argv[1],argv[2],ORB_SLAM3::System::MONOCULAR,true);
+    ORB_SLAM3::System SLAM(argv[1],argv[2],ORB_SLAM3::System::MONOCULAR,false);
     float imageScale = SLAM.GetImageScale();
 
     // Vector for tracking time statistics
@@ -57,6 +57,10 @@ int main(int argc, char **argv)
     cout << endl << "-------" << endl;
     cout << "Start processing sequence ..." << endl;
     cout << "Images in the sequence: " << nImages << endl << endl;
+
+    // Per-frame map points output
+    string perframe_path = string(argv[3]) + "/perframe_points.bin";
+    ofstream fperframe(perframe_path, ios::binary);
 
     thread th { [&]() {
     #ifdef REGISTER_TIMES
@@ -110,7 +114,44 @@ int main(int argc, char **argv)
     #endif
 
             // Pass the image to the SLAM system
-            SLAM.TrackMonocular(im,tframe);
+            Sophus::SE3f Tcw = SLAM.TrackMonocular(im,tframe);
+
+            // Save per-frame tracked map points with MapPoint IDs
+            // Format: timestamp(f64) n_points(i32) [mp_id(i64) u(f32) v(f32) X(f32) Y(f32) Z(f32)] * n
+            {
+                int state = SLAM.GetTrackingState();
+                // Collect valid points into a buffer first, then write atomically
+                struct PointRecord { int64_t id; float u, v, x, y, z; };
+                vector<PointRecord> records;
+                if (state == 2 || state == 5) {
+                    auto mps = SLAM.GetTrackedMapPoints();
+                    auto kps = SLAM.GetTrackedKeyPointsUn();
+                    size_t limit = std::min(mps.size(), kps.size());
+                    for (size_t k = 0; k < limit; k++) {
+                        if (mps[k] && !mps[k]->isBad()) {
+                            auto pos = mps[k]->GetWorldPos();
+                            PointRecord rec;
+                            rec.id = static_cast<int64_t>(mps[k]->mnId);
+                            rec.u = kps[k].pt.x;
+                            rec.v = kps[k].pt.y;
+                            rec.x = pos(0);
+                            rec.y = pos(1);
+                            rec.z = pos(2);
+                            records.push_back(rec);
+                        }
+                    }
+                }
+                // Write atomically: header then all points
+                fperframe.write((char*)&tframe, sizeof(double));
+                int32_t nv = static_cast<int32_t>(records.size());
+                fperframe.write((char*)&nv, sizeof(int32_t));
+                for (const auto& rec : records) {
+                    fperframe.write((char*)&rec.id, sizeof(int64_t));
+                    float data[5] = {rec.u, rec.v, rec.x, rec.y, rec.z};
+                    fperframe.write((char*)data, sizeof(data));
+                }
+                fperframe.flush();
+            }
 
     #ifdef COMPILEDWITHC11
             std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
@@ -127,20 +168,13 @@ int main(int argc, char **argv)
 
             vTimesTrack[ni]=ttrack;
 
-            // Wait to load the next frame
-            double T=0;
-            if(ni<nImages-1)
-                T = vTimestamps[ni+1]-tframe;
-            else if(ni>0)
-                T = tframe-vTimestamps[ni-1];
-
-            if(ttrack<T)
-                usleep((T-ttrack)*1e6);
+            // Offline batch mode: skip real-time wait for faster processing
+            // (Original code waited to simulate real-time playback)
         }
     }};
 
     SLAM.RunViewer();
-    // th.join();
+    th.join();
 
     // Stop all threads
     SLAM.Shutdown();
@@ -158,6 +192,13 @@ int main(int argc, char **argv)
 
     // Save camera trajectory
     SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
+
+    // Close per-frame binary output
+    fperframe.close();
+    cout << "Saved per-frame map points to " << perframe_path << endl;
+
+    // Save full trajectory (every frame, not just keyframes)
+    SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
 
     return 0;
 }
