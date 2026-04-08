@@ -151,21 +151,91 @@ jobs:
       - name: Build ORB_SLAM3
         run: cmake --build build -- -j$(getconf _NPROCESSORS_ONLN)
 
+      # ----- Bundle dependent libs (macOS) -----
+      # The built mono_tum + libORB_SLAM3.dylib reference absolute paths like
+       # /opt/homebrew/opt/opencv/lib/libopencv_*.dylib which don't exist on
+      # other machines. Use dylibbundler to copy all non-system dylibs into
+      # a local lib/ directory and rewrite install names to @loader_path-style.
+      - name: Bundle dylibs (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install dylibbundler
+          mkdir -p staging/lib staging/bin
+          cp lib/libORB_SLAM3.dylib staging/lib/
+          cp Thirdparty/DBoW2/lib/libDBoW2.dylib staging/lib/
+          cp Thirdparty/g2o/lib/libg2o.dylib staging/lib/
+          cp Examples/Monocular/mono_tum staging/bin/
+          # dylibbundler rewrites absolute @rpath → @loader_path/../libs/
+          # for the binary AND every library it recursively depends on.
+          dylibbundler -od -b \
+            -x staging/bin/mono_tum \
+            -x staging/lib/libORB_SLAM3.dylib \
+            -x staging/lib/libDBoW2.dylib \
+            -x staging/lib/libg2o.dylib \
+            -d staging/libs -p @loader_path/../libs/
+          ls -lh staging/libs/ | head -20
+          echo "bundled lib count: $(ls staging/libs/ | wc -l)"
+
+      # ----- Bundle dependent libs (Linux) -----
+      # patchelf adjusts RPATH on linux ELF binaries. Copy dependent shared
+      # libs into lib/ and set RPATH to $ORIGIN/../lib.
+      - name: Bundle shared libs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y patchelf
+          mkdir -p staging/lib staging/bin
+          cp lib/libORB_SLAM3.so staging/lib/
+          cp Thirdparty/DBoW2/lib/libDBoW2.so staging/lib/
+          cp Thirdparty/g2o/lib/libg2o.so staging/lib/
+          cp Examples/Monocular/mono_tum staging/bin/
+          # Copy all non-system dylib dependencies from ldd output
+          copy_deps() {
+            local bin="$1"
+            ldd "$bin" | awk '/=> \// {print $3}' | while read lib; do
+              case "$lib" in
+                /lib/*|/lib64/*|/usr/lib/*|/usr/lib64/*) ;;  # system libs, skip
+                "") ;;
+                *) cp -n "$lib" staging/lib/ 2>/dev/null || true ;;
+              esac
+            done
+          }
+          copy_deps staging/bin/mono_tum
+          copy_deps staging/lib/libORB_SLAM3.so
+          copy_deps staging/lib/libDBoW2.so
+          copy_deps staging/lib/libg2o.so
+          # Recursively process newly copied libs
+          for lib in staging/lib/*.so*; do
+            copy_deps "$lib"
+          done
+          # Set RPATH on all binaries
+          patchelf --set-rpath '$ORIGIN/../lib' staging/bin/mono_tum
+          for lib in staging/lib/*.so*; do
+            patchelf --set-rpath '$ORIGIN' "$lib" 2>/dev/null || true
+          done
+          ls -lh staging/lib/ | head -20
+          echo "bundled lib count: $(ls staging/lib/ | wc -l)"
+
       # ----- Package -----
       - name: Package artifact
         run: |
           ARCHIVE="orb-slam3-spatial-${{ matrix.platform_tag }}.tar.gz"
-          tar czf "$ARCHIVE" \
-            lib/libORB_SLAM3.${{ matrix.lib_ext }} \
-            Examples/Monocular/mono_tum \
-            Vocabulary/ORBvoc.txt \
-            Thirdparty/DBoW2/lib/libDBoW2.${{ matrix.lib_ext }} \
-            Thirdparty/g2o/lib/libg2o.${{ matrix.lib_ext }} \
-            Examples/Monocular/TUM1.yaml \
-            Examples/Monocular/TUM2.yaml \
-            Examples/Monocular/TUM3.yaml \
-            Examples/Monocular/TUM1_tuned.yaml \
-            Examples/Monocular/Generic720.yaml
+          # Assemble final layout
+          mkdir -p dist/Examples/Monocular dist/Vocabulary dist/lib
+          cp staging/bin/mono_tum dist/Examples/Monocular/
+          cp Vocabulary/ORBvoc.txt dist/Vocabulary/
+          cp Examples/Monocular/TUM1.yaml dist/Examples/Monocular/
+          cp Examples/Monocular/TUM2.yaml dist/Examples/Monocular/
+          cp Examples/Monocular/TUM3.yaml dist/Examples/Monocular/
+          cp Examples/Monocular/TUM1_tuned.yaml dist/Examples/Monocular/
+          cp Examples/Monocular/Generic720.yaml dist/Examples/Monocular/
+          # Copy bundled libs — macOS uses libs/, Linux uses lib/
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            cp -R staging/libs dist/libs
+            cp staging/lib/*.dylib dist/lib/
+          else
+            cp staging/lib/*.so* dist/lib/
+          fi
+          tar czf "$ARCHIVE" -C dist .
           ls -lh "$ARCHIVE"
 
       - name: Upload artifact
