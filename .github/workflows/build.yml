@@ -102,6 +102,12 @@ jobs:
           cmake --build . -- -j$(getconf _NPROCESSORS_ONLN)
 
       # ----- Thirdparty: Pangolin (clone + build from source) -----
+      # We run headless via SocketPublisher, so we disable all video drivers
+      # (ffmpeg, libav, etc.) which break on modern ffmpeg 5+ due to removed
+      # avcodec_close() and other API changes in Pangolin 0.9.1.
+      # Core pango_display + pango_windowing + pango_opengl are kept because
+      # ORB-SLAM3's libORB_SLAM3 links against them even when the viewer is
+      # disabled at runtime.
       - name: Build Pangolin
         run: |
           if [ ! -d Thirdparty/Pangolin ]; then
@@ -109,7 +115,21 @@ jobs:
               https://github.com/stevenlovegrove/Pangolin.git Thirdparty/Pangolin
           fi
           cd Thirdparty/Pangolin
-          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PANGOLIN_PYTHON=OFF
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_PANGOLIN_PYTHON=OFF \
+            -DBUILD_PANGOLIN_VIDEO=OFF \
+            -DBUILD_PANGOLIN_FFMPEG=OFF \
+            -DBUILD_PANGOLIN_LIBREALSENSE=OFF \
+            -DBUILD_PANGOLIN_LIBREALSENSE2=OFF \
+            -DBUILD_PANGOLIN_LIBDC1394=OFF \
+            -DBUILD_PANGOLIN_LIBUVC=OFF \
+            -DBUILD_PANGOLIN_LIBJPEG_TURBO=OFF \
+            -DBUILD_PANGOLIN_TOON=OFF \
+            -DBUILD_PANGOLIN_ZSTD=OFF \
+            -DBUILD_PANGOLIN_LZ4=OFF
           cmake --build build -- -j$(getconf _NPROCESSORS_ONLN)
 
       # ----- Vocabulary -----
