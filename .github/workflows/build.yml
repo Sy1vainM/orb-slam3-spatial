@@ -1,0 +1,121 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+      - feat/socket-publisher
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform_tag }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform_tag: macos-arm64
+            lib_ext: dylib
+          - os: ubuntu-22.04
+            platform_tag: linux-x86_64
+            lib_ext: so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # ----- Dependencies -----
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake opencv eigen boost openssl@3 glew
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake git pkg-config \
+            libopencv-dev libeigen3-dev libboost-all-dev libssl-dev \
+            libgl1-mesa-dev libglew-dev libwayland-dev libxkbcommon-dev \
+            wayland-protocols libegl1-mesa-dev libepoxy-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            python3
+
+      # ----- Thirdparty: DBoW2 -----
+      - name: Build DBoW2
+        run: |
+          cd Thirdparty/DBoW2
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake --build . -- -j$(getconf _NPROCESSORS_ONLN)
+
+      # ----- Thirdparty: g2o -----
+      - name: Build g2o
+        run: |
+          cd Thirdparty/g2o
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake --build . -- -j$(getconf _NPROCESSORS_ONLN)
+
+      # ----- Thirdparty: Sophus -----
+      - name: Build Sophus
+        run: |
+          cd Thirdparty/Sophus
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake --build . -- -j$(getconf _NPROCESSORS_ONLN)
+
+      # ----- Thirdparty: Pangolin (clone + build from source) -----
+      - name: Build Pangolin
+        run: |
+          if [ ! -d Thirdparty/Pangolin ]; then
+            git clone --recursive --depth 1 --branch v0.9.1 \
+              https://github.com/stevenlovegrove/Pangolin.git Thirdparty/Pangolin
+          fi
+          cd Thirdparty/Pangolin
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=OFF -DBUILD_TESTS=OFF -DBUILD_PANGOLIN_PYTHON=OFF
+          cmake --build build -- -j$(getconf _NPROCESSORS_ONLN)
+
+      # ----- Vocabulary -----
+      - name: Uncompress vocabulary
+        run: |
+          if [ ! -f Vocabulary/ORBvoc.txt ]; then
+            cd Vocabulary && tar -xf ORBvoc.txt.tar.gz
+          fi
+
+      # ----- ORB_SLAM3 -----
+      - name: Configure ORB_SLAM3
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build ORB_SLAM3
+        run: cmake --build build -- -j$(getconf _NPROCESSORS_ONLN)
+
+      # ----- Package -----
+      - name: Package artifact
+        run: |
+          ARCHIVE="orb-slam3-spatial-${{ matrix.platform_tag }}.tar.gz"
+          tar czf "$ARCHIVE" \
+            lib/libORB_SLAM3.${{ matrix.lib_ext }} \
+            Examples/Monocular/mono_tum \
+            Vocabulary/ORBvoc.txt \
+            Thirdparty/DBoW2/lib/libDBoW2.${{ matrix.lib_ext }} \
+            Thirdparty/g2o/lib/libg2o.${{ matrix.lib_ext }} \
+            Examples/Monocular/TUM1.yaml \
+            Examples/Monocular/TUM2.yaml \
+            Examples/Monocular/TUM3.yaml \
+            Examples/Monocular/TUM1_tuned.yaml \
+            Examples/Monocular/Generic720.yaml
+          ls -lh "$ARCHIVE"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: orb-slam3-spatial-${{ matrix.platform_tag }}
+          path: orb-slam3-spatial-${{ matrix.platform_tag }}.tar.gz
+          retention-days: 30
