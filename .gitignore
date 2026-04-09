@@ -98,6 +98,6 @@ borrar/*
 
 # Local dependencies and build artifacts not for redistribution
 Thirdparty/Pangolin/
-Vocabulary/ORBvoc.txt.bin
 KeyFrameTrajectory.txt
 CameraTrajectory.txt
+ci-artifacts/

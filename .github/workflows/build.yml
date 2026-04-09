@@ -258,11 +258,9 @@ jobs:
           cmake --build build -- -j$(getconf _NPROCESSORS_ONLN)
 
       # ----- Vocabulary -----
-      - name: Uncompress vocabulary
-        run: |
-          if [ ! -f Vocabulary/ORBvoc.txt ]; then
-            cd Vocabulary && tar -xf ORBvoc.txt.tar.gz
-          fi
+      # The repo ships a pre-generated binary vocabulary (Vocabulary/ORBvoc.txt.bin,
+      # ~46MB) which ORB_SLAM3's System::System auto-detects and loads in ~4s
+      # instead of parsing the 139MB text form for ~12min. Nothing to do here.
 
       # ----- ORB_SLAM3 -----
       - name: Configure ORB_SLAM3
@@ -300,7 +298,10 @@ jobs:
           # Minimal OpenCV we built from source — all its libs are @rpath/
           # references and our dep walker skips @-prefixed paths, so copy
           # them explicitly.
-          cp -L "$RUNNER_TEMP/opencv-minimal/lib/libopencv_"*.dylib staging/libs/ 2>/dev/null || true
+          # Use cp -a to preserve OpenCV's symlink chain
+          # (libopencv_core.dylib -> libopencv_core.410.dylib -> libopencv_core.4.10.0.dylib).
+          # cp -L would deref and triple the on-disk footprint (~30MB waste).
+          cp -a "$RUNNER_TEMP/opencv-minimal/lib/"libopencv_*.dylib staging/libs/ 2>/dev/null || true
 
           # Helper: identify "non-system" dependencies. We relocate anything
           # that's NOT in /usr/lib, /System, or @rpath (already relative).
@@ -354,7 +355,11 @@ jobs:
           }
 
           rewrite_paths staging/bin/mono_tum "../../libs"
+          # Iterate real dylibs only; skip symlinks (OpenCV versioned aliases).
+          # install_name_tool -add_rpath is not idempotent, so hitting the
+          # same target via 3 symlink aliases would create duplicate LC_RPATH.
           for f in staging/libs/*.dylib; do
+            [ -L "$f" ] && continue
             rewrite_paths "$f" "."
           done
           # mono_tum: rpath points to libs/ (for @rpath-prefixed deps)
@@ -362,11 +367,13 @@ jobs:
           # Each lib in libs/: add @loader_path as rpath so sibling @rpath/
           # references (e.g. libtinyobj → libpango_geometry) resolve.
           for f in staging/libs/*.dylib; do
+            [ -L "$f" ] && continue
             install_name_tool -add_rpath "@loader_path" "$f" 2>/dev/null || true
           done
           # Resign to avoid macOS Gatekeeper rejection after modification
           codesign --force --sign - staging/bin/mono_tum
           for f in staging/libs/*.dylib; do
+            [ -L "$f" ] && continue
             codesign --force --sign - "$f"
           done
           echo "Bundling done in $(date)"
@@ -384,7 +391,9 @@ jobs:
           cp Examples/Monocular/mono_tum staging/bin/
           # Minimal OpenCV libs built from source (ldd resolves these
           # already but copy explicitly to be safe)
-          cp -L "$RUNNER_TEMP/opencv-minimal/lib/libopencv_"*.so* staging/lib/ 2>/dev/null || true
+          # Use cp -a to preserve soname symlink chain
+          # (libopencv_core.so -> libopencv_core.so.410 -> libopencv_core.so.4.10.0).
+          cp -a "$RUNNER_TEMP/opencv-minimal/lib/"libopencv_*.so* staging/lib/ 2>/dev/null || true
           # Copy all non-system dylib dependencies from ldd output
           copy_deps() {
             local bin="$1"
@@ -400,13 +409,17 @@ jobs:
           copy_deps staging/lib/libORB_SLAM3.so
           copy_deps staging/lib/libDBoW2.so
           copy_deps staging/lib/libg2o.so
-          # Recursively process newly copied libs
+          # Recursively process newly copied libs (skip symlinks — the real
+          # file is handled via its canonical name).
           for lib in staging/lib/*.so*; do
+            [ -L "$lib" ] && continue
             copy_deps "$lib"
           done
-          # Set RPATH on all binaries
+          # Set RPATH on all binaries. Skip symlinks: patchelf operates on
+          # the ELF header and would either fail or double-patch via aliases.
           patchelf --set-rpath '$ORIGIN/../lib' staging/bin/mono_tum
           for lib in staging/lib/*.so*; do
+            [ -L "$lib" ] && continue
             patchelf --set-rpath '$ORIGIN' "$lib" 2>/dev/null || true
           done
           ls -lh staging/lib/ | head -20
@@ -418,7 +431,12 @@ jobs:
           ARCHIVE="orb-slam3-spatial-${{ matrix.platform_tag }}.tar.gz"
           mkdir -p dist/Examples/Monocular dist/Vocabulary
           cp staging/bin/mono_tum dist/Examples/Monocular/
-          cp Vocabulary/ORBvoc.txt dist/Vocabulary/
+          # Ship the pre-generated binary vocabulary (~46MB) instead of the
+          # 139MB ASCII form. ORB_SLAM3's System.cc probes `${vocFile}.bin`
+          # first, so callers can still pass `.../ORBvoc.txt` as the path
+          # even though no .txt file is present — the .bin sibling is found
+          # and loaded in ~4s.
+          cp Vocabulary/ORBvoc.txt.bin dist/Vocabulary/
           cp Examples/Monocular/TUM1.yaml dist/Examples/Monocular/
           cp Examples/Monocular/TUM2.yaml dist/Examples/Monocular/
           cp Examples/Monocular/TUM3.yaml dist/Examples/Monocular/
@@ -427,12 +445,13 @@ jobs:
           # Bundled libs live at dist root:
           #   macOS: dist/libs/*.dylib  (@loader_path/../../libs from mono_tum)
           #   Linux: dist/lib/*.so*      ($ORIGIN/../lib from mono_tum)
+          # cp -a preserves OpenCV's symlink chain (versioned aliases).
           if [ "$RUNNER_OS" = "macOS" ]; then
             mkdir -p dist/libs
-            cp staging/libs/*.dylib dist/libs/
+            cp -a staging/libs/*.dylib dist/libs/
           else
             mkdir -p dist/lib
-            cp staging/lib/*.so* dist/lib/
+            cp -a staging/lib/*.so* dist/lib/
           fi
           tar czf "$ARCHIVE" -C dist .
           ls -lh "$ARCHIVE"
