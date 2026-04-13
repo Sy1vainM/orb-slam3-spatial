@@ -290,6 +290,8 @@ jobs:
           set -e
           mkdir -p staging/bin staging/libs
           cp Examples/Monocular/mono_tum staging/bin/
+          cp Examples/Monocular/mono_stream staging/bin/
+          cp tools/combine_atlas staging/bin/
           cp lib/libORB_SLAM3.dylib staging/libs/
           cp Thirdparty/DBoW2/lib/libDBoW2.dylib staging/libs/
           cp Thirdparty/g2o/lib/libg2o.dylib staging/libs/
@@ -329,7 +331,7 @@ jobs:
 
           # Three passes to catch opencv's internal dependency chains.
           for pass in 1 2 3; do
-            for f in staging/bin/mono_tum staging/libs/*.dylib; do
+            for f in staging/bin/mono_tum staging/bin/mono_stream staging/bin/combine_atlas staging/libs/*.dylib; do
               copy_nonsys_deps "$f"
             done
           done
@@ -356,6 +358,8 @@ jobs:
           }
 
           rewrite_paths staging/bin/mono_tum "../../libs"
+          rewrite_paths staging/bin/mono_stream "../../libs"
+          rewrite_paths staging/bin/combine_atlas "../libs"
           # Iterate real dylibs only; skip symlinks (OpenCV versioned aliases).
           # install_name_tool -add_rpath is not idempotent, so hitting the
           # same target via 3 symlink aliases would create duplicate LC_RPATH.
@@ -363,8 +367,10 @@ jobs:
             [ -L "$f" ] && continue
             rewrite_paths "$f" "."
           done
-          # mono_tum: rpath points to libs/ (for @rpath-prefixed deps)
+          # binaries: rpath points to libs/ (for @rpath-prefixed deps)
           install_name_tool -add_rpath "@loader_path/../../libs" staging/bin/mono_tum 2>/dev/null || true
+          install_name_tool -add_rpath "@loader_path/../../libs" staging/bin/mono_stream 2>/dev/null || true
+          install_name_tool -add_rpath "@loader_path/../libs" staging/bin/combine_atlas 2>/dev/null || true
           # Each lib in libs/: add @loader_path as rpath so sibling @rpath/
           # references (e.g. libtinyobj → libpango_geometry) resolve.
           for f in staging/libs/*.dylib; do
@@ -373,6 +379,8 @@ jobs:
           done
           # Resign to avoid macOS Gatekeeper rejection after modification
           codesign --force --sign - staging/bin/mono_tum
+          codesign --force --sign - staging/bin/mono_stream
+          codesign --force --sign - staging/bin/combine_atlas
           for f in staging/libs/*.dylib; do
             [ -L "$f" ] && continue
             codesign --force --sign - "$f"
@@ -390,6 +398,8 @@ jobs:
           cp Thirdparty/DBoW2/lib/libDBoW2.so staging/lib/
           cp Thirdparty/g2o/lib/libg2o.so staging/lib/
           cp Examples/Monocular/mono_tum staging/bin/
+          cp Examples/Monocular/mono_stream staging/bin/
+          cp tools/combine_atlas staging/bin/
           # Minimal OpenCV libs built from source (ldd resolves these
           # already but copy explicitly to be safe)
           # Use cp -a to preserve soname symlink chain
@@ -407,6 +417,8 @@ jobs:
             done
           }
           copy_deps staging/bin/mono_tum
+          copy_deps staging/bin/mono_stream
+          copy_deps staging/bin/combine_atlas
           copy_deps staging/lib/libORB_SLAM3.so
           copy_deps staging/lib/libDBoW2.so
           copy_deps staging/lib/libg2o.so
@@ -419,6 +431,8 @@ jobs:
           # Set RPATH on all binaries. Skip symlinks: patchelf operates on
           # the ELF header and would either fail or double-patch via aliases.
           patchelf --set-rpath '$ORIGIN/../lib' staging/bin/mono_tum
+          patchelf --set-rpath '$ORIGIN/../lib' staging/bin/mono_stream
+          patchelf --set-rpath '$ORIGIN/../lib' staging/bin/combine_atlas
           for lib in staging/lib/*.so*; do
             [ -L "$lib" ] && continue
             patchelf --set-rpath '$ORIGIN' "$lib" 2>/dev/null || true
@@ -430,8 +444,10 @@ jobs:
       - name: Package artifact
         run: |
           ARCHIVE="orb-slam3-spatial-${{ matrix.platform_tag }}.tar.gz"
-          mkdir -p dist/Examples/Monocular dist/Vocabulary
+          mkdir -p dist/Examples/Monocular dist/Vocabulary dist/tools
           cp staging/bin/mono_tum dist/Examples/Monocular/
+          cp staging/bin/mono_stream dist/Examples/Monocular/
+          cp staging/bin/combine_atlas dist/tools/
           # Ship the pre-generated binary vocabulary (~46MB) instead of the
           # 139MB ASCII form. ORB_SLAM3's System.cc probes `${vocFile}.bin`
           # first, so callers can still pass `.../ORBvoc.txt` as the path
