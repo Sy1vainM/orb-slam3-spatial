@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - feat/socket-publisher
+      - feat/phase3-combine-stream
     tags:
       - 'v*'
   workflow_dispatch:
