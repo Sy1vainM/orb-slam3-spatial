@@ -1554,19 +1554,26 @@ void LoopClosing::MergeLocal()
 
         mpAtlas->ChangeMap(pMergeMap);
 
-        // Notify SocketPublisher of map merge (Phase 3)
-        if (mpSocketPublisher)
-        {
-            mpSocketPublisher->SetMapMerge(
-                pCurrentMap->GetId(),   // source: map being absorbed
-                pMergeMap->GetId()      // target: map that absorbs
-            );
-        }
+        // Notify SocketPublisher of map merge BEFORE ChangeId (Phase 3).
+        // source = pCurrentMap (being absorbed), target = pMergeMap (surviving).
+        // These are the IDs Python's map_to_scene was built with.
+        // After ChangeId below, the surviving map adopts source's ID — Python
+        // must remap its map_to_scene accordingly when it processes MSG_MAP_MERGE.
+        long unsigned int mergeSourceId = pCurrentMap->GetId();
+        long unsigned int mergeTargetId = pMergeMap->GetId();
 
         mpAtlas->SetMapBad(pCurrentMap);
         pMergeMap->IncreaseChangeIndex();
         //TODO for debug
         pMergeMap->ChangeId(pCurrentMap->GetId());
+
+        // Emit AFTER the merge is complete but with pre-ChangeId IDs so Python
+        // can look up both scenes in its map_to_scene table.
+        // Also include the post-ChangeId target ID so Python can update its mapping.
+        if (mpSocketPublisher)
+        {
+            mpSocketPublisher->SetMapMerge(mergeSourceId, mergeTargetId);
+        }
 
         //std::cout << "[Merge]: merging maps finished" << std::endl;
     }

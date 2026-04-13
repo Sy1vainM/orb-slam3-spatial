@@ -491,7 +491,7 @@ void Map::PostLoad(KeyFrameDatabase* pKFDB, ORBVocabulary* pORBVoc/*, map<long u
 }
 
 
-void Map::RemapIds(long unsigned int kfOffset, long unsigned int mpOffset)
+void Map::RemapIds(long unsigned int kfOffset, long unsigned int mpOffset, long unsigned int mapOffset)
 {
     unique_lock<mutex> lock(mMutexMapUpdate);
 
@@ -573,6 +573,9 @@ void Map::RemapIds(long unsigned int kfOffset, long unsigned int mpOffset)
             pKF->mBackupPrevKFId += static_cast<long long int>(kfOffset);
         if (pKF->mBackupNextKFId >= 0)
             pKF->mBackupNextKFId += static_cast<long long int>(kfOffset);
+
+        // Origin map ID (unsigned int — used by map drawer for visualization)
+        pKF->mnOriginMapId += static_cast<unsigned int>(mapOffset);
     }
 
     // --- 3. Remap Map-level backup KF ID references ---

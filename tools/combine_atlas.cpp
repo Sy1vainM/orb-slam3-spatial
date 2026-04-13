@@ -22,6 +22,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include <openssl/md5.h>
+
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 
@@ -42,6 +44,41 @@ using namespace ORB_SLAM3;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Compute MD5 checksum of a file (same logic as System::CalculateCheckSum).
+ */
+static string CalculateCheckSum(const string& filename)
+{
+    ifstream f(filename.c_str(), ios::in);
+    if (!f.is_open())
+    {
+        cerr << "[combine_atlas] WARNING: Cannot open " << filename
+             << " for MD5 hash." << endl;
+        return "";
+    }
+
+    unsigned char c[MD5_DIGEST_LENGTH];
+    MD5_CTX md5Context;
+    char buffer[1024];
+
+    MD5_Init(&md5Context);
+    while (int count = f.readsome(buffer, sizeof(buffer)))
+    {
+        MD5_Update(&md5Context, buffer, count);
+    }
+    f.close();
+    MD5_Final(c, &md5Context);
+
+    string checksum;
+    for (int i = 0; i < MD5_DIGEST_LENGTH; i++)
+    {
+        char aux[10];
+        sprintf(aux, "%02x", c[i]);
+        checksum += aux;
+    }
+    return checksum;
+}
 
 static void PrintUsage(const char* prog)
 {
@@ -99,7 +136,8 @@ static ORBVocabulary* LoadVocabulary(const string& vocPath)
  */
 static Atlas* LoadAtlas(const string& osaPath,
                         ORBVocabulary* pVoc,
-                        KeyFrameDatabase*& pKFDB_out)
+                        KeyFrameDatabase*& pKFDB_out,
+                        const string& expectedVocChecksum)
 {
     ifstream ifs(osaPath, ios::binary);
     if (!ifs.good())
@@ -130,6 +168,19 @@ static Atlas* LoadAtlas(const string& osaPath,
     {
         cerr << "[combine_atlas] ERROR: Deserialized null atlas from "
              << osaPath << endl;
+        return nullptr;
+    }
+
+    // Validate vocabulary checksum matches the supplied vocabulary
+    if (!expectedVocChecksum.empty() && !strVocChecksum.empty()
+        && expectedVocChecksum != strVocChecksum)
+    {
+        cerr << "[combine_atlas] ERROR: Vocabulary checksum mismatch for "
+             << osaPath << endl;
+        cerr << "  Atlas vocab: " << strVocName
+             << " (checksum: " << strVocChecksum << ")" << endl;
+        cerr << "  Supplied vocab checksum: " << expectedVocChecksum << endl;
+        delete pAtlas;
         return nullptr;
     }
 
@@ -313,10 +364,19 @@ int main(int argc, char** argv)
         return 1;
 
     // -----------------------------------------------------------------------
+    // Step 1b: Compute vocabulary checksum for validation + output
+    // -----------------------------------------------------------------------
+    string vocChecksum = CalculateCheckSum(vocPath);
+    if (vocChecksum.empty())
+        cout << "[combine_atlas] WARNING: Could not compute vocab checksum (text file missing?)" << endl;
+    else
+        cout << "[combine_atlas] Vocabulary checksum: " << vocChecksum << endl;
+
+    // -----------------------------------------------------------------------
     // Step 2: Load Atlas A
     // -----------------------------------------------------------------------
     KeyFrameDatabase* pKFDB_A = nullptr;
-    Atlas* pAtlasA = LoadAtlas(atlasAPath, pVoc, pKFDB_A);
+    Atlas* pAtlasA = LoadAtlas(atlasAPath, pVoc, pKFDB_A, vocChecksum);
     if (!pAtlasA)
     {
         delete pVoc;
@@ -351,7 +411,7 @@ int main(int argc, char** argv)
     // Step 3: Load Atlas B (this overwrites static counters!)
     // -----------------------------------------------------------------------
     KeyFrameDatabase* pKFDB_B = nullptr;
-    Atlas* pAtlasB = LoadAtlas(atlasBPath, pVoc, pKFDB_B);
+    Atlas* pAtlasB = LoadAtlas(atlasBPath, pVoc, pKFDB_B, vocChecksum);
     if (!pAtlasB)
     {
         delete pKFDB_A;
@@ -393,8 +453,8 @@ int main(int argc, char** argv)
         // Remap map ID to avoid collision with A's maps
         pMap->ChangeId(pMap->GetId() + mapOffset);
 
-        // Remap KF/MP IDs within this map
-        pMap->RemapIds(kfOffset, mpOffset);
+        // Remap KF/MP IDs within this map (mapOffset for mnOriginMapId)
+        pMap->RemapIds(kfOffset, mpOffset, mapOffset);
     }
 
     // Collect target map IDs (B's maps, after remapping)
@@ -462,8 +522,6 @@ int main(int argc, char** argv)
     // Extract vocab name from path (same logic as System::SaveAtlas)
     size_t slashPos = vocPath.find_last_of("/\\");
     string vocName = (slashPos != string::npos) ? vocPath.substr(slashPos + 1) : vocPath;
-    // Use empty checksum — combine_atlas does not compute MD5
-    string vocChecksum = "";
 
     if (!SaveAtlas(pAtlasA, outputPath, vocName, vocChecksum))
     {

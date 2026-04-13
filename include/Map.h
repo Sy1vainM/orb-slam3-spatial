@@ -137,7 +137,7 @@ public:
     // Used by combine_atlas to avoid ID collisions.
     // MUST be called after PreSave() (backup IDs populated) and before
     // writing the combined atlas.
-    void RemapIds(long unsigned int kfOffset, long unsigned int mpOffset);
+    void RemapIds(long unsigned int kfOffset, long unsigned int mpOffset, long unsigned int mapOffset = 0);
 
     void printReprojectionError(list<KeyFrame*> &lpLocalWindowKFs, KeyFrame* mpCurrentKF, string &name, string &name_folder);
 
