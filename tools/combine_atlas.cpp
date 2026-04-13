@@ -480,6 +480,40 @@ int main(int argc, char** argv)
         pAtlasA->AddMap(pMap);
     }
 
+    // Merge B's camera registry into A (deduplication via AddCamera).
+    // Without this, Atlas::PreSave builds spCams from A's mvpCameras only,
+    // and B's KeyFrames write mnBackupIdCamera = -1 → broken on reload.
+    vector<GeometricCamera*> bCams = pAtlasB->GetAllCameras();
+    int newCams = 0;
+    for (GeometricCamera* pCam : bCams)
+    {
+        if (!pCam) continue;
+        GeometricCamera* pExisting = pAtlasA->AddCamera(pCam);
+        if (pExisting != pCam)
+        {
+            // Camera was deduplicated — update B's KFs to point to A's copy.
+            // This ensures PreSave finds them in spCams.
+            for (Map* pMap : bMaps)
+            {
+                if (!pMap || pMap->IsBad()) continue;
+                for (KeyFrame* pKF : pMap->GetAllKeyFrames())
+                {
+                    if (pKF && pKF->mpCamera == pCam)
+                        pKF->mpCamera = pExisting;
+                    if (pKF && pKF->mpCamera2 == pCam)
+                        pKF->mpCamera2 = pExisting;
+                }
+            }
+        }
+        else
+        {
+            newCams++;
+        }
+    }
+    cout << "[combine_atlas] Camera merge: " << bCams.size()
+         << " from B, " << newCams << " new, "
+         << pAtlasA->GetAllCameras().size() << " total in A" << endl;
+
     cout << "[combine_atlas] Merged " << targetMapIds.size()
          << " maps from B into A. Total maps: "
          << pAtlasA->GetAllMaps().size() << endl;
