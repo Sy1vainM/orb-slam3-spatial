@@ -126,6 +126,13 @@ void SocketPublisher::SetLoopClosure()
     mbLoopClosure.store(true);
 }
 
+void SocketPublisher::SetMapMerge(unsigned long int sourceMapId, unsigned long int targetMapId)
+{
+    mnMergeSourceMapId = sourceMapId;
+    mnMergeTargetMapId = targetMapId;
+    mbMapMerge.store(true);
+}
+
 void SocketPublisher::PublishFrame(const std::vector<MapPoint*>& mapPoints,
                                    const std::vector<cv::KeyPoint>& keypoints,
                                    double timestamp,
@@ -153,6 +160,27 @@ void SocketPublisher::PublishKeyframePose(const Eigen::Matrix4f& Tcw,
 
     Message msg = BuildKeyframePoseMsg(Tcw, timestamp, loopFlag, trackingState);
     Enqueue(std::move(msg));
+
+    // Send MSG_MAP_MERGE if a merge event was flagged
+    if (mbMapMerge.exchange(false))
+    {
+        // Payload: source_map_id(4) + target_map_id(4) = 8 bytes
+        uint32_t mergePayloadLen = 8;
+        std::vector<uint8_t> header = BuildHeader(MSG_MAP_MERGE, mergePayloadLen, mCameraId);
+
+        std::vector<uint8_t> payload(mergePayloadLen);
+        uint8_t* mp = payload.data();
+        uint32_t srcId = static_cast<uint32_t>(mnMergeSourceMapId);
+        memcpy(mp, &srcId, 4); mp += 4;
+        uint32_t tgtId = static_cast<uint32_t>(mnMergeTargetMapId);
+        memcpy(mp, &tgtId, 4); mp += 4;
+
+        Message mergeMsg;
+        mergeMsg.data.reserve(header.size() + payload.size());
+        mergeMsg.data.insert(mergeMsg.data.end(), header.begin(), header.end());
+        mergeMsg.data.insert(mergeMsg.data.end(), payload.begin(), payload.end());
+        Enqueue(std::move(mergeMsg));
+    }
 }
 
 // ---------- Protocol Message Builders ----------
@@ -208,9 +236,9 @@ SocketPublisher::Message SocketPublisher::BuildMapPointsMsg(
     if (nValid == 0)
         return Message{};
 
-    // Payload: timestamp(8) + n_points(4) + per_point(28) * nValid
+    // Payload: timestamp(8) + n_points(4) + per_point(28) * nValid + active_map_id(4)
     // Per point: mp_id(8, int64) + u(4) + v(4) + X(4) + Y(4) + Z(4) = 28
-    uint32_t payloadLen = 8 + 4 + 28 * nValid;
+    uint32_t payloadLen = 8 + 4 + 28 * nValid + 4;
     std::vector<uint8_t> header = BuildHeader(MSG_MAPPOINTS, payloadLen, mCameraId);
 
     std::vector<uint8_t> payload(payloadLen);
@@ -252,6 +280,12 @@ SocketPublisher::Message SocketPublisher::BuildMapPointsMsg(
         memcpy(p, &z, 4); p += 4;
     }
 
+    // active_map_id (uint32) — which Map this frame belongs to
+    uint32_t activeMapId = 0;
+    if (mpAtlas && mpAtlas->GetCurrentMap())
+        activeMapId = static_cast<uint32_t>(mpAtlas->GetCurrentMap()->GetId());
+    memcpy(p, &activeMapId, 4); p += 4;
+
     // Concatenate header + payload
     Message msg;
     msg.data.reserve(header.size() + payload.size());
@@ -270,8 +304,8 @@ SocketPublisher::Message SocketPublisher::BuildKeyframePoseMsg(
     // Tcw is camera-from-world (world-to-camera), which matches "w2c".
     // We transmit R(3x3) row-major then t(3x1).
 
-    // Payload: timestamp(8) + pose(12*8=96) + is_loop(1) + tracking_state(1) = 106
-    uint32_t payloadLen = 8 + 96 + 1 + 1;
+    // Payload: timestamp(8) + pose(12*8=96) + is_loop(1) + tracking_state(1) + active_map_id(4) = 110
+    uint32_t payloadLen = 8 + 96 + 1 + 1 + 4;
     std::vector<uint8_t> header = BuildHeader(MSG_KEYFRAME_POSE, payloadLen, mCameraId);
 
     std::vector<uint8_t> payload(payloadLen);
@@ -306,6 +340,12 @@ SocketPublisher::Message SocketPublisher::BuildKeyframePoseMsg(
     if (trackingState == 3) protoState = 1;      // RECENTLY_LOST
     else if (trackingState == 4) protoState = 2;  // LOST
     *p++ = protoState;
+
+    // active_map_id (uint32) — which Map this frame belongs to
+    uint32_t activeMapId = 0;
+    if (mpAtlas && mpAtlas->GetCurrentMap())
+        activeMapId = static_cast<uint32_t>(mpAtlas->GetCurrentMap()->GetId());
+    memcpy(p, &activeMapId, 4); p += 4;
 
     Message msg;
     msg.data.reserve(header.size() + payload.size());

@@ -41,6 +41,7 @@ public:
     static constexpr uint8_t  MSG_KEYFRAME_POSE    = 0x02;
     static constexpr uint8_t  MSG_COVISIBILITY     = 0x03;
     static constexpr uint8_t  MSG_CAMERA_INFO      = 0x04;
+    static constexpr uint8_t  MSG_MAP_MERGE        = 0x06;
     static constexpr uint8_t  CMD_LOAD_ATLAS       = 0x10;
     static constexpr uint8_t  CMD_SAVE_ATLAS       = 0x11;
     static constexpr uint8_t  CMD_GET_COVISIBILITY = 0x12;
@@ -102,6 +103,15 @@ public:
      * Thread-safe; read by PublishKeyframePose.
      */
     void SetLoopClosure();
+
+    /**
+     * Mark that a map merge occurred.
+     * Thread-safe; the merge event is published to the client asynchronously.
+     *
+     * @param sourceMapId  Map being absorbed (will be marked bad).
+     * @param targetMapId  Map that absorbs the source.
+     */
+    void SetMapMerge(unsigned long int sourceMapId, unsigned long int targetMapId);
 
 private:
     // Internal message buffer entry
@@ -168,6 +178,11 @@ private:
 
     // Loop closure flag (set by LoopClosing thread, consumed by publish)
     std::atomic<bool> mbLoopClosure{false};
+
+    // Map merge state (set by LoopClosing thread, consumed by publish)
+    std::atomic<bool> mbMapMerge{false};
+    unsigned long int mnMergeSourceMapId{0};
+    unsigned long int mnMergeTargetMapId{0};
 
     // Max queue size to avoid unbounded memory growth
     static constexpr size_t MAX_QUEUE_SIZE = 300;

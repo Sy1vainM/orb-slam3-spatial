@@ -1553,6 +1553,16 @@ void LoopClosing::MergeLocal()
         }
 
         mpAtlas->ChangeMap(pMergeMap);
+
+        // Notify SocketPublisher of map merge (Phase 3)
+        if (mpSocketPublisher)
+        {
+            mpSocketPublisher->SetMapMerge(
+                pCurrentMap->GetId(),   // source: map being absorbed
+                pMergeMap->GetId()      // target: map that absorbs
+            );
+        }
+
         mpAtlas->SetMapBad(pCurrentMap);
         pMergeMap->IncreaseChangeIndex();
         //TODO for debug
