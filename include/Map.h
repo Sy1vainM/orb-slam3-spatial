@@ -133,6 +133,12 @@ public:
     void PreSave(std::set<GeometricCamera*> &spCams);
     void PostLoad(KeyFrameDatabase* pKFDB, ORBVocabulary* pORBVoc/*, map<long unsigned int, KeyFrame*>& mpKeyFrameId*/, map<unsigned int, GeometricCamera*> &mpCams);
 
+    // Phase 3: Remap all KF/MP IDs by adding offsets.
+    // Used by combine_atlas to avoid ID collisions.
+    // MUST be called after PreSave() (backup IDs populated) and before
+    // writing the combined atlas.
+    void RemapIds(long unsigned int kfOffset, long unsigned int mpOffset);
+
     void printReprojectionError(list<KeyFrame*> &lpLocalWindowKFs, KeyFrame* mpCurrentKF, string &name, string &name_folder);
 
     vector<KeyFrame*> mvpKeyFrameOrigins;

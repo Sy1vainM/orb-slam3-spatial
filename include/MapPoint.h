@@ -45,6 +45,7 @@ class MapPoint
 {
 
     friend class boost::serialization::access;
+    friend class Map;  // Phase 3: RemapIds needs access to backup ID fields
     template<class Archive>
     void serialize(Archive & ar, const unsigned int version)
     {

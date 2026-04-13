@@ -491,4 +491,102 @@ void Map::PostLoad(KeyFrameDatabase* pKFDB, ORBVocabulary* pORBVoc/*, map<long u
 }
 
 
+void Map::RemapIds(long unsigned int kfOffset, long unsigned int mpOffset)
+{
+    unique_lock<mutex> lock(mMutexMapUpdate);
+
+    // --- 1. Remap MapPoint IDs + backup references ---
+    for (MapPoint* pMP : mspMapPoints)
+    {
+        if (!pMP) continue;
+
+        // Primary ID
+        pMP->mnId += mpOffset;
+
+        // First-KF reference (long int; -1 means unset)
+        if (pMP->mnFirstKFid >= 0)
+            pMP->mnFirstKFid += static_cast<long int>(kfOffset);
+
+        // Backup reference KF ID (long unsigned int — always valid after PreSave)
+        pMP->mBackupRefKFId += kfOffset;
+
+        // Backup replaced MP ID (long long int; -1 means no replacement)
+        if (pMP->mBackupReplacedId >= 0)
+            pMP->mBackupReplacedId += static_cast<long long int>(mpOffset);
+
+        // Observation maps: KF ID -> index
+        {
+            std::map<long unsigned int, int> remapped;
+            for (const auto& kv : pMP->mBackupObservationsId1)
+                remapped[kv.first + kfOffset] = kv.second;
+            pMP->mBackupObservationsId1 = remapped;
+        }
+        {
+            std::map<long unsigned int, int> remapped;
+            for (const auto& kv : pMP->mBackupObservationsId2)
+                remapped[kv.first + kfOffset] = kv.second;
+            pMP->mBackupObservationsId2 = remapped;
+        }
+    }
+
+    // --- 2. Remap KeyFrame IDs + backup references ---
+    for (KeyFrame* pKF : mspKeyFrames)
+    {
+        if (!pKF) continue;
+
+        // Primary ID
+        pKF->mnId += kfOffset;
+
+        // Parent KF (long long int; -1 means no parent)
+        if (pKF->mBackupParentId >= 0)
+            pKF->mBackupParentId += static_cast<long long int>(kfOffset);
+
+        // Children KFs
+        for (auto& id : pKF->mvBackupChildrensId)
+            id += kfOffset;
+
+        // Loop edges
+        for (auto& id : pKF->mvBackupLoopEdgesId)
+            id += kfOffset;
+
+        // Merge edges
+        for (auto& id : pKF->mvBackupMergeEdgesId)
+            id += kfOffset;
+
+        // Connected KF weights map
+        {
+            std::map<long unsigned int, int> remapped;
+            for (const auto& kv : pKF->mBackupConnectedKeyFrameIdWeights)
+                remapped[kv.first + kfOffset] = kv.second;
+            pKF->mBackupConnectedKeyFrameIdWeights = remapped;
+        }
+
+        // MapPoint references (long long int; -1 means no MP at that index)
+        for (auto& mpId : pKF->mvBackupMapPointsId)
+        {
+            if (mpId >= 0)
+                mpId += static_cast<long long int>(mpOffset);
+        }
+
+        // IMU prev/next KF references (long long int; -1 means unset)
+        if (pKF->mBackupPrevKFId >= 0)
+            pKF->mBackupPrevKFId += static_cast<long long int>(kfOffset);
+        if (pKF->mBackupNextKFId >= 0)
+            pKF->mBackupNextKFId += static_cast<long long int>(kfOffset);
+    }
+
+    // --- 3. Remap Map-level backup KF ID references ---
+    for (auto& id : mvBackupKeyFrameOriginsId)
+        id += kfOffset;
+
+    mnBackupKFinitialID += kfOffset;
+    mnBackupKFlowerID += kfOffset;
+    mnInitKFid += kfOffset;
+    mnMaxKFid += kfOffset;
+
+    cout << "Map::RemapIds: map " << mnId << " remapped "
+         << mspKeyFrames.size() << " KFs (+" << kfOffset << "), "
+         << mspMapPoints.size() << " MPs (+" << mpOffset << ")" << endl;
+}
+
 } //namespace ORB_SLAM3
