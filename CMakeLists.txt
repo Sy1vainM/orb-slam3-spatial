@@ -214,6 +214,11 @@ add_executable(mono_tum
         Examples/Monocular/mono_tum.cc)
 target_link_libraries(mono_tum ${PROJECT_NAME})
 
+# Phase 3: Live stream monocular
+add_executable(mono_stream
+        Examples/Monocular/mono_stream.cc)
+target_link_libraries(mono_stream ${PROJECT_NAME})
+
 add_executable(mono_kitti
         Examples/Monocular/mono_kitti.cc)
 target_link_libraries(mono_kitti ${PROJECT_NAME})
