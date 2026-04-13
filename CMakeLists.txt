@@ -414,3 +414,9 @@ if(realsense2_FOUND)
             Examples_old/Stereo-Inertial/stereo_inertial_realsense_D435i.cc)
     target_link_libraries(stereo_inertial_realsense_D435i_old ${PROJECT_NAME})
 endif()
+
+# Phase 3: Atlas combine tool
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/tools)
+
+add_executable(combine_atlas tools/combine_atlas.cpp)
+target_link_libraries(combine_atlas ${PROJECT_NAME})
