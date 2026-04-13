@@ -23,6 +23,8 @@
 #include "Pinhole.h"
 #include "KannalaBrandt8.h"
 
+#include <algorithm>
+
 namespace ORB_SLAM3
 {
 
@@ -74,6 +76,34 @@ void Atlas::CreateNewMap()
     mpCurrentMap = new Map(mnLastInitKFidMap);
     mpCurrentMap->SetCurrentMap();
     mspMaps.insert(mpCurrentMap);
+}
+
+void Atlas::AddMap(Map* pMap)
+{
+    unique_lock<mutex> lock(mMutexAtlas);
+    if (pMap && !pMap->IsBad())
+    {
+        mspMaps.insert(pMap);
+        cout << "Atlas::AddMap: inserted map id=" << pMap->GetId()
+             << " (total maps: " << mspMaps.size() << ")" << endl;
+    }
+}
+
+Atlas::IdCounters Atlas::GetMaxIds()
+{
+    unique_lock<mutex> lock(mMutexAtlas);
+    IdCounters counters;
+    for (Map* pMap : mspMaps)
+    {
+        if (!pMap || pMap->IsBad())
+            continue;
+        counters.mapId = std::max(counters.mapId, pMap->GetId());
+        for (KeyFrame* pKF : pMap->GetAllKeyFrames())
+            counters.kfId = std::max(counters.kfId, pKF->mnId);
+        for (MapPoint* pMP : pMap->GetAllMapPoints())
+            counters.mpId = std::max(counters.mpId, pMP->mnId);
+    }
+    return counters;
 }
 
 void Atlas::ChangeMap(Map* pMap)

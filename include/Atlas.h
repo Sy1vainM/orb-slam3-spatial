@@ -115,6 +115,16 @@ public:
 
     Map* GetCurrentMap();
 
+    // --- Phase 3: Atlas combine support ---
+    struct IdCounters {
+        unsigned long int mapId = 0;
+        unsigned long int kfId = 0;
+        unsigned long int mpId = 0;
+    };
+
+    void AddMap(Map* pMap);
+    IdCounters GetMaxIds();
+
     void SetMapBad(Map* pMap);
     void RemoveBadMaps();
 
