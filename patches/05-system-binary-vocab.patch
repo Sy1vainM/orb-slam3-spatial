@@ -1,0 +1,74 @@
+diff --git a/src/System.cc b/src/System.cc
+index bdfc67b..1769f5b 100644
+--- a/src/System.cc
++++ b/src/System.cc
+@@ -111,11 +111,31 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
+ 
+     if(mStrLoadAtlasFromFile.empty())
+     {
+-        //Load ORB Vocabulary
+-        cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
++        //Load ORB Vocabulary — try binary first, fall back to text + auto-convert
++        cout << endl << "Loading ORB Vocabulary..." << endl;
+ 
+         mpVocabulary = new ORBVocabulary();
+-        bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
++        std::string binVocFile = strVocFile + ".bin";
++        bool bVocLoad = false;
++        {
++            std::ifstream testBin(binVocFile, std::ios::binary);
++            if(testBin.good()) {
++                testBin.close();
++                cout << "  Found binary vocab: " << binVocFile << endl;
++                bVocLoad = mpVocabulary->loadFromBinaryFile(binVocFile);
++                if(bVocLoad) cout << "  Binary vocab loaded!" << endl;
++            }
++        }
++        if(!bVocLoad)
++        {
++            cout << "  Loading text vocab (slow, one-time)..." << endl;
++            bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
++            if(bVocLoad) {
++                cout << "  Saving binary vocab for next time..." << endl;
++                mpVocabulary->saveToBinaryFile(binVocFile);
++                cout << "  Saved: " << binVocFile << endl;
++            }
++        }
+         if(!bVocLoad)
+         {
+             cerr << "Wrong path to vocabulary. " << endl;
+@@ -133,11 +153,31 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
+     }
+     else
+     {
+-        //Load ORB Vocabulary
+-        cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
++        //Load ORB Vocabulary — try binary first, fall back to text + auto-convert
++        cout << endl << "Loading ORB Vocabulary..." << endl;
+ 
+         mpVocabulary = new ORBVocabulary();
+-        bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
++        std::string binVocFile2 = strVocFile + ".bin";
++        bool bVocLoad = false;
++        {
++            std::ifstream testBin(binVocFile2, std::ios::binary);
++            if(testBin.good()) {
++                testBin.close();
++                cout << "  Found binary vocab: " << binVocFile2 << endl;
++                bVocLoad = mpVocabulary->loadFromBinaryFile(binVocFile2);
++                if(bVocLoad) cout << "  Binary vocab loaded!" << endl;
++            }
++        }
++        if(!bVocLoad)
++        {
++            cout << "  Loading text vocab (slow, one-time)..." << endl;
++            bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
++            if(bVocLoad) {
++                cout << "  Saving binary vocab for next time..." << endl;
++                mpVocabulary->saveToBinaryFile(binVocFile2);
++                cout << "  Saved: " << binVocFile2 << endl;
++            }
++        }
+         if(!bVocLoad)
+         {
+             cerr << "Wrong path to vocabulary. " << endl;

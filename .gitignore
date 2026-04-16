@@ -1,0 +1,19 @@
+# Build outputs
+build/
+thirdparty/ORB_SLAM3/build/
+thirdparty/ORB_SLAM3/lib/
+thirdparty/ORB_SLAM3/Thirdparty/*/build/
+thirdparty/ORB_SLAM3/Thirdparty/*/lib/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.pyc
+.DS_Store
+
+# CI artifacts
+ci-artifacts/
+
+# Reference files kept locally only
+src/*.ref
+tools/*.ref

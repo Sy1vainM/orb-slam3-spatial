@@ -1,0 +1,3 @@
+[submodule "thirdparty/ORB_SLAM3"]
+	path = thirdparty/ORB_SLAM3
+	url = git@github.com:royshil/ORB_SLAM3_macosx.git

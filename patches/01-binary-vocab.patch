@@ -1,0 +1,146 @@
+diff --git a/Thirdparty/DBoW2/DBoW2/TemplatedVocabulary.h b/Thirdparty/DBoW2/DBoW2/TemplatedVocabulary.h
+index 0195934..5d0974f 100644
+--- a/Thirdparty/DBoW2/DBoW2/TemplatedVocabulary.h
++++ b/Thirdparty/DBoW2/DBoW2/TemplatedVocabulary.h
+@@ -244,7 +244,20 @@ public:
+    * Saves the vocabulary into a text file
+    * @param filename
+    */
+-  void saveToTextFile(const std::string &filename) const;  
++  void saveToTextFile(const std::string &filename) const;
++
++  /**
++   * Saves the vocabulary to a compact binary file (fast I/O)
++   * @param filename
++   */
++  void saveToBinaryFile(const std::string &filename) const;
++
++  /**
++   * Loads the vocabulary from a compact binary file
++   * @param filename
++   * @return true if loaded successfully
++   */
++  bool loadFromBinaryFile(const std::string &filename);
+ 
+   /**
+    * Saves the vocabulary into a file
+@@ -1450,6 +1463,119 @@ void TemplatedVocabulary<TDescriptor,F>::saveToTextFile(const std::string &filen
+ 
+ // --------------------------------------------------------------------------
+ 
++template<class TDescriptor, class F>
++void TemplatedVocabulary<TDescriptor,F>::saveToBinaryFile(const std::string &filename) const
++{
++    std::ofstream f(filename, std::ios::binary);
++    if(!f.is_open()) throw std::string("Could not open file ") + filename;
++
++    // Header: magic + k + L + scoring + weighting + num_nodes
++    const int32_t magic = 0x44425632;  // "DBV2"
++    int32_t k = m_k, L = m_L;
++    int32_t scoring = (int32_t)m_scoring, weighting = (int32_t)m_weighting;
++    int32_t num_nodes = (int32_t)(m_nodes.size() - 1);  // exclude root
++
++    f.write((const char*)&magic, 4);
++    f.write((const char*)&k, 4);
++    f.write((const char*)&L, 4);
++    f.write((const char*)&scoring, 4);
++    f.write((const char*)&weighting, 4);
++    f.write((const char*)&num_nodes, 4);
++
++    // Per node: parent(i32) isLeaf(i8) descriptor(32 bytes) weight(f64)
++    for(size_t i = 1; i < m_nodes.size(); i++)
++    {
++        const Node& node = m_nodes[i];
++        int32_t parent = (int32_t)node.parent;
++        int8_t isLeaf = node.isLeaf() ? 1 : 0;
++        double weight = node.weight;
++
++        f.write((const char*)&parent, 4);
++        f.write((const char*)&isLeaf, 1);
++        // Write raw descriptor bytes (32 bytes for ORB)
++        f.write((const char*)node.descriptor.data, F::L);
++        f.write((const char*)&weight, 8);
++    }
++    f.close();
++}
++
++// --------------------------------------------------------------------------
++
++template<class TDescriptor, class F>
++bool TemplatedVocabulary<TDescriptor,F>::loadFromBinaryFile(const std::string &filename)
++{
++    std::ifstream f(filename, std::ios::binary);
++    if(!f.is_open()) return false;
++
++    // Read header
++    int32_t magic, k, L_val, scoring, weighting, num_nodes;
++    f.read((char*)&magic, 4);
++    if(magic != 0x44425632) return false;  // bad magic
++    f.read((char*)&k, 4);
++    f.read((char*)&L_val, 4);
++    f.read((char*)&scoring, 4);
++    f.read((char*)&weighting, 4);
++    f.read((char*)&num_nodes, 4);
++
++    m_k = k; m_L = L_val;
++    m_scoring = (ScoringType)scoring;
++    m_weighting = (WeightingType)weighting;
++    createScoringObject();
++
++    m_nodes.clear();
++    m_words.clear();
++    m_nodes.resize(num_nodes + 1);
++    m_nodes[0].id = 0;
++
++    // Pre-allocate
++    int expected_words = (int)pow((double)m_k, (double)m_L + 1);
++    m_words.reserve(expected_words);
++
++    // Per node record: parent(4) + isLeaf(1) + descriptor(32) + weight(8) = 45 bytes
++    const int record_size = 4 + 1 + F::L + 8;
++    std::vector<char> buf(num_nodes * record_size);
++    f.read(buf.data(), buf.size());
++    f.close();
++
++    const char* ptr = buf.data();
++    for(int i = 0; i < num_nodes; i++)
++    {
++        int nid = i + 1;
++        m_nodes[nid].id = nid;
++
++        int32_t parent;
++        memcpy(&parent, ptr, 4); ptr += 4;
++        m_nodes[nid].parent = parent;
++        m_nodes[parent].children.push_back(nid);
++
++        int8_t isLeaf;
++        memcpy(&isLeaf, ptr, 1); ptr += 1;
++
++        // Descriptor: 32 bytes raw
++        m_nodes[nid].descriptor = cv::Mat(1, F::L, CV_8U);
++        memcpy(m_nodes[nid].descriptor.data, ptr, F::L); ptr += F::L;
++
++        double weight;
++        memcpy(&weight, ptr, 8); ptr += 8;
++        m_nodes[nid].weight = weight;
++
++        if(isLeaf > 0)
++        {
++            int wid = m_words.size();
++            m_words.push_back(&m_nodes[nid]);
++            m_nodes[nid].word_id = wid;
++        }
++        else
++        {
++            m_nodes[nid].children.reserve(m_k);
++        }
++    }
++
++    return true;
++}
++
++// --------------------------------------------------------------------------
++
+ template<class TDescriptor, class F>
+ void TemplatedVocabulary<TDescriptor,F>::save(const std::string &filename) const
+ {

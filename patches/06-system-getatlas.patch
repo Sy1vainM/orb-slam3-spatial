@@ -1,0 +1,16 @@
+diff --git a/include/System.h b/include/System.h
+index 8215fa8..7532c3b 100644
+--- a/include/System.h
++++ b/include/System.h
+@@ -177,6 +177,11 @@ public:
+     std::vector<MapPoint*> GetTrackedMapPoints();
+     std::vector<cv::KeyPoint> GetTrackedKeyPointsUn();
+ 
++    // Exposed for external spatial/publishing components that need to read
++    // global atlas state (current map id, all keyframes, covisibility graph).
++    // The returned pointer is owned by System; do not delete.
++    Atlas* GetAtlas() { return mpAtlas; }
++
+     // For debugging
+     double GetTimeFromIMUInit();
+     bool isLost();

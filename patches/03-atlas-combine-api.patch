@@ -1,0 +1,69 @@
+diff --git a/include/Atlas.h b/include/Atlas.h
+index e1e2717..2d5adbc 100644
+--- a/include/Atlas.h
++++ b/include/Atlas.h
+@@ -115,6 +115,16 @@ public:
+ 
+     Map* GetCurrentMap();
+ 
++    // --- Phase 3: Atlas combine support ---
++    struct IdCounters {
++        unsigned long int mapId = 0;
++        unsigned long int kfId = 0;
++        unsigned long int mpId = 0;
++    };
++
++    void AddMap(Map* pMap);
++    IdCounters GetMaxIds();
++
+     void SetMapBad(Map* pMap);
+     void RemoveBadMaps();
+ 
+diff --git a/src/Atlas.cc b/src/Atlas.cc
+index 7bdea06..b14fda5 100644
+--- a/src/Atlas.cc
++++ b/src/Atlas.cc
+@@ -23,6 +23,8 @@
+ #include "Pinhole.h"
+ #include "KannalaBrandt8.h"
+ 
++#include <algorithm>
++
+ namespace ORB_SLAM3
+ {
+ 
+@@ -76,6 +78,34 @@ void Atlas::CreateNewMap()
+     mspMaps.insert(mpCurrentMap);
+ }
+ 
++void Atlas::AddMap(Map* pMap)
++{
++    unique_lock<mutex> lock(mMutexAtlas);
++    if (pMap && !pMap->IsBad())
++    {
++        mspMaps.insert(pMap);
++        cout << "Atlas::AddMap: inserted map id=" << pMap->GetId()
++             << " (total maps: " << mspMaps.size() << ")" << endl;
++    }
++}
++
++Atlas::IdCounters Atlas::GetMaxIds()
++{
++    unique_lock<mutex> lock(mMutexAtlas);
++    IdCounters counters;
++    for (Map* pMap : mspMaps)
++    {
++        if (!pMap || pMap->IsBad())
++            continue;
++        counters.mapId = std::max(counters.mapId, pMap->GetId());
++        for (KeyFrame* pKF : pMap->GetAllKeyFrames())
++            counters.kfId = std::max(counters.kfId, pKF->mnId);
++        for (MapPoint* pMP : pMap->GetAllMapPoints())
++            counters.mpId = std::max(counters.mpId, pMP->mnId);
++    }
++    return counters;
++}
++
+ void Atlas::ChangeMap(Map* pMap)
+ {
+     unique_lock<mutex> lock(mMutexAtlas);
