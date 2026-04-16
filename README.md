@@ -10,10 +10,12 @@ All spatial-service–specific logic (UDS `SocketPublisher`, per-frame map-point
 .
 ├── CMakeLists.txt            # Top-level build for our wrapper binaries
 ├── patches/                  # Minimal patches applied to the ORB-SLAM3 submodule
+├── environment.yml           # conda-forge dev env (opencv/eigen/boost/...)
 ├── scripts/
 │   ├── apply-patches.sh      # Idempotent patch applier
+│   ├── build-pangolin.sh     # Builds Pangolin from source into $CONDA_PREFIX
 │   ├── build-orb-slam3.sh    # Builds submodule (Thirdparty deps + libORB_SLAM3)
-│   └── build.sh              # End-to-end: patches → submodule → wrapper
+│   └── build.sh              # End-to-end: env check → patches → Pangolin → submodule → wrapper
 ├── include/
 │   └── socket_publisher.h    # UDS server header (was in ORB_SLAM3/include)
 ├── src/
@@ -78,32 +80,38 @@ calls (they are populated inside `GrabImageMonocular` and remain stable until
 the next frame), the externally-extracted data is identical to what the fork
 published internally.
 
-## Prerequisites
+## Two audiences, two workflows
 
-### macOS (Homebrew)
+| Audience | What they do | What they need |
+|---|---|---|
+| **End user** (visionmem, spatial service runtime) | Download `tar.gz` from GitHub Release, extract, run `mono_tum`. | Nothing on the host — the tarball bundles every `.dylib` / `.so` and uses `@loader_path` / `$ORIGIN` relative rpaths. |
+| **Developer / CI** (building the tarball) | `conda env create`, `scripts/build.sh`, then the release CI packages the artifact. | Only a conda/miniforge install. Nothing system-wide. |
 
-```bash
-brew install cmake opencv eigen pangolin boost openssl@3 libomp
-```
+The conda environment exists only on the **build** side. Runtime artifacts
+are fully self-contained tarballs, identical in shape to the `v0.3.0-spatial`
+release we shipped from the old fork.
 
-### Linux (Debian/Ubuntu)
-
-```bash
-sudo apt install build-essential cmake libopencv-dev libeigen3-dev \
-                 libboost-all-dev libssl-dev libglew-dev
-# Pangolin: build from source (https://github.com/stevenlovegrove/Pangolin)
-```
-
-## Build
+## Build (developer / CI side)
 
 ```bash
 git submodule update --init --recursive
-scripts/build.sh
+
+# One-time: create the isolated build env (~2 GB, pure conda-forge)
+conda env create -f environment.yml
+
+# Every session
+conda activate orbslam-spatial
+scripts/build.sh     # applies patches, builds Pangolin into env,
+                     # builds ORB-SLAM3, builds our wrapper
 ```
 
 Produces:
-- `thirdparty/ORB_SLAM3/lib/libORB_SLAM3.{dylib,so}`
-- `build/mono_tum`
+- `$CONDA_PREFIX/lib/libpango_*.{dylib,so}`          (Pangolin, installed into env)
+- `thirdparty/ORB_SLAM3/lib/libORB_SLAM3.{dylib,so}` (patched submodule build)
+- `build/mono_tum`                                    (our wrapper)
+
+All three link exclusively against `$CONDA_PREFIX` libraries, so the build
+leaves the host system untouched.
 
 ## Run (offline TUM dataset)
 
@@ -125,7 +133,8 @@ fork's output format byte-for-byte on identical inputs.
 - [x] 6 patches generated and idempotent `apply-patches.sh` verified
 - [x] `SocketPublisher` extracted, `main_tum.cc` reimplemented externally
 - [x] `CMakeLists.txt` + `build.sh` scaffolding
-- [ ] End-to-end local build on macOS (pending dep install)
+- [x] `environment.yml` (conda-forge), `scripts/build-pangolin.sh` (isolated build deps)
+- [ ] End-to-end local build on macOS (pending `conda env create`)
 - [ ] Precision parity test: external `mono_tum` vs fork's `mono_tum` on TUM desk
 - [ ] `main_stream.cc` external wrapper (for live camera / RTSP)
 - [ ] `tools/combine_atlas.cc` external wrapper

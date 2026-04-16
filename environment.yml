@@ -1,0 +1,35 @@
+# Isolated C++ build environment for orb-slam3-spatial.
+#
+# Everything ORB-SLAM3 and our wrapper need at build time, pinned through
+# conda-forge for reproducibility across macOS (arm64/x86_64) and Linux.
+#
+# Pangolin is NOT on conda-forge. It is built from source via
+# scripts/build-pangolin.sh and installed into $CONDA_PREFIX, so once this
+# env is active the wrapper CMake finds it like any other conda package.
+#
+# Usage:
+#   conda env create -f environment.yml
+#   conda activate orbslam-spatial
+#   scripts/build-pangolin.sh    # one-time, builds into $CONDA_PREFIX
+#   scripts/build.sh             # builds submodule + wrapper
+name: orbslam-spatial
+channels:
+  - conda-forge
+dependencies:
+  # Toolchain
+  - cmake>=3.22
+  - pkg-config
+  - make
+  - cxx-compiler     # clang on macOS, gcc on Linux (conda-forge meta)
+  # ORB-SLAM3 direct dependencies
+  - libopencv=4.10.*
+  - eigen=3.4.*
+  - libboost-devel=1.86.*
+  - openssl=3.*
+  - llvm-openmp      # OpenMP runtime (libomp), needed by g2o / ORB extractor
+  # Pangolin build dependencies (we compile Pangolin from source)
+  - glew
+  - libpng
+  - libjpeg-turbo
+  # Git (submodule operations inside CI)
+  - git
