@@ -46,6 +46,10 @@ message(STATUS "Found libORB_SLAM3: ${ORB_SLAM3_LIB}")
 # ---------------------------------------------------------------------------
 find_package(OpenCV 4 REQUIRED)
 find_package(Eigen3 REQUIRED)
+# OpenGL must be looked up before Pangolin so its targets exist on macOS
+# (where Pangolin's GL include path is the OpenGL.framework header dir,
+# not the standard GL/gl.h on Linux).
+find_package(OpenGL REQUIRED)
 find_package(Pangolin REQUIRED)
 find_package(Boost REQUIRED COMPONENTS serialization)
 find_package(OpenSSL REQUIRED)
@@ -68,10 +72,13 @@ target_include_directories(spatial_publisher PUBLIC
     ${ORB_SLAM3_DIR}/Thirdparty/Sophus
     ${OpenCV_INCLUDE_DIRS}
     ${EIGEN3_INCLUDE_DIR}
+    ${Pangolin_INCLUDE_DIRS}
 )
 target_link_libraries(spatial_publisher PUBLIC
     ${ORB_SLAM3_LIB}
     ${OpenCV_LIBS}
+    ${Pangolin_LIBRARIES}
+    OpenGL::GL
     Boost::serialization
 )
 

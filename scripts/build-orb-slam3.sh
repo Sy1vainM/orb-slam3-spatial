@@ -22,6 +22,7 @@ JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 build_subdir() {
     local name="$1"
     local dir="$2"
+    shift 2
     if [ -f "$dir/build/CMakeCache.txt" ]; then
         echo "==> $name: reusing existing build dir"
     else
@@ -29,7 +30,8 @@ build_subdir() {
         mkdir -p "$dir/build"
         (cd "$dir/build" && cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX")
+            -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+            "$@")
     fi
     echo "==> $name: building (-j$JOBS)"
     cmake --build "$dir/build" -- -j"$JOBS"
@@ -37,7 +39,10 @@ build_subdir() {
 
 build_subdir "DBoW2"  "$SUB/Thirdparty/DBoW2"
 build_subdir "g2o"    "$SUB/Thirdparty/g2o"
-build_subdir "Sophus" "$SUB/Thirdparty/Sophus"
+# Sophus unit tests use deprecated copy-assignment patterns rejected by modern
+# clang (-Werror,-Wdeprecated-copy). We only need the Sophus headers, not the
+# tests, so skip them entirely.
+build_subdir "Sophus" "$SUB/Thirdparty/Sophus" -DBUILD_TESTS=OFF
 build_subdir "ORB_SLAM3" "$SUB"
 
 echo

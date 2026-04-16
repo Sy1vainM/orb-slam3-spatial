@@ -17,3 +17,5 @@ ci-artifacts/
 # Reference files kept locally only
 src/*.ref
 tools/*.ref
+thirdparty/Pangolin/build/
+.cache/

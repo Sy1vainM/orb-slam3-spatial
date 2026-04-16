@@ -7,7 +7,7 @@
  * All multi-byte values are little-endian, matching Python struct '<' format.
  */
 
-#include "SocketPublisher.h"
+#include "socket_publisher.h"
 #include "Atlas.h"
 #include "KeyFrame.h"
 #include "Map.h"

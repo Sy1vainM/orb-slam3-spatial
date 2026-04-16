@@ -1,0 +1,24 @@
+diff --git a/include/KeyFrame.h b/include/KeyFrame.h
+index 1b8d1c4..77f6fd5 100644
+--- a/include/KeyFrame.h
++++ b/include/KeyFrame.h
+@@ -52,6 +52,7 @@ class GeometricCamera;
+ class KeyFrame
+ {
+     friend class boost::serialization::access;
++    friend class Map;  // Map::RemapIds needs access to backup ID fields
+ 
+     template<class Archive>
+     void serialize(Archive& ar, const unsigned int version)
+diff --git a/include/MapPoint.h b/include/MapPoint.h
+index 29cb420..44825ea 100644
+--- a/include/MapPoint.h
++++ b/include/MapPoint.h
+@@ -45,6 +45,7 @@ class MapPoint
+ {
+ 
+     friend class boost::serialization::access;
++    friend class Map;  // Map::RemapIds needs access to backup ID fields
+     template<class Archive>
+     void serialize(Archive & ar, const unsigned int version)
+     {

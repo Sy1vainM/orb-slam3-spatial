@@ -261,7 +261,7 @@ int main(int argc, char** argv)
                     // frame.
                     const bool loopClosed = SLAM.MapChanged();
                     publisher->PublishKeyframePose(
-                        Tcw.matrix().cast<double>(), tframe, loopClosed, state);
+                        Tcw.matrix(), tframe, loopClosed, state);
                 }
             }
         }

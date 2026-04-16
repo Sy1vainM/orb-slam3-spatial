@@ -16,8 +16,9 @@ name: orbslam-spatial
 channels:
   - conda-forge
 dependencies:
-  # Toolchain
-  - cmake>=3.22
+  # Toolchain — pin cmake <4 because ORB-SLAM3 upstream CMakeLists still
+  # declare `cmake_minimum_required(VERSION 2.8)` which cmake 4.x rejects.
+  - cmake=3.31.*
   - pkg-config
   - make
   - cxx-compiler     # clang on macOS, gcc on Linux (conda-forge meta)
